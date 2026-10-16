@@ -50,6 +50,19 @@ The API reads these (all optional, defaults shown):
 | `CLICKHOUSE_URL` | `http://localhost:8123` | ClickHouse HTTP endpoint |
 | `PORT` | `8080` | API port |
 | `WEB_ORIGIN` | `http://localhost:5173` | Allowed CORS origin |
+| `DATABASE_PATH` | `apps/api/data/app.db` | SQLite file holding saved connections |
+| `ENCRYPTION_KEY` | insecure dev fallback | Key used to encrypt connection passwords at rest |
+
+`CLICKHOUSE_URL` seeds the first connection on an empty database; after that,
+connections are managed in the UI and stored in SQLite (Drizzle ORM). Connection
+passwords are encrypted with AES-256-GCM and are never returned to the browser.
+Set `ENCRYPTION_KEY` to anything other than the development fallback before
+storing a real credential; changing it later makes existing secrets
+undecryptable.
+
+Schema changes: edit `apps/api/src/db/schema.ts`, then run
+`pnpm --filter @clickhouse-ai/api db:generate`. Migrations are applied
+automatically on API start.
 
 The AI SDK providers are installed but not wired to a route yet. When they are,
 an LLM key will be needed — `OPENAI_API_KEY` (from https://platform.openai.com/api-keys)

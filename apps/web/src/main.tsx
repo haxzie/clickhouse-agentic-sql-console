@@ -1,8 +1,13 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 
-import { App } from './App.js';
+import { AppLayout } from './components/layouts/AppLayout.js';
 import './index.css';
+
+// Dev-only: lets us grab UI elements as source context for coding agents.
+if (import.meta.env.DEV) {
+  void import('react-grab');
+}
 
 const container = document.getElementById('root');
 
@@ -12,6 +17,6 @@ if (!container) {
 
 createRoot(container).render(
   <StrictMode>
-    <App />
-  </StrictMode>
+    <AppLayout />
+  </StrictMode>,
 );
