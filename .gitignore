@@ -142,3 +142,6 @@ vite.config.ts.timestamp-*
 
 # Local SQLite database
 apps/api/data/
+
+# macOS
+.DS_Store
