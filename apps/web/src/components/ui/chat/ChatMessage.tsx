@@ -1,9 +1,11 @@
 import type { UIMessage } from 'ai';
 import { Streamdown } from 'streamdown';
 
+import { splitSelectionContext } from '../../../lib/selectionContext.js';
 import { ChatToolCall } from './ChatToolCall.js';
 import { chatMarkdownComponents } from './chatMarkdownComponents.js';
-import { messageToolParts } from './useChatSession.js';
+import { SelectionPill } from './SelectionPill.js';
+import { messageToolParts, searchProgressByToolCall } from './useChatSession.js';
 
 type ChatMessageProps = {
   message: UIMessage;
@@ -23,16 +25,25 @@ export function ChatMessage({ message, onApprove, onReject }: ChatMessageProps) 
   const text = messageText(message);
 
   if (message.role === 'user') {
+    // A message sent with an editor selection carries it as a context block;
+    // show that as the same pill the composer displayed, not as raw text.
+    const { context, text: typed } = splitSelectionContext(text);
+
     return (
       <li className="flex justify-end">
-        <div className="max-w-[85%] rounded-lg border border-neutral-200 bg-white px-3 py-2 whitespace-pre-wrap">
-          {text}
+        <div className="flex max-w-[85%] flex-col items-end gap-1.5">
+          {context && <SelectionPill tone="message" selection={context} />}
+
+          <div className="rounded-lg border border-neutral-200 bg-white px-3 py-2 whitespace-pre-wrap">
+            {typed}
+          </div>
         </div>
       </li>
     );
   }
 
   const toolParts = messageToolParts(message);
+  const searchProgress = searchProgressByToolCall(message);
 
   // Assistant replies are plain prose across the full width, no bubble.
   return (
@@ -43,6 +54,7 @@ export function ChatMessage({ message, onApprove, onReject }: ChatMessageProps) 
             <ChatToolCall
               key={part.toolCallId}
               part={part}
+              steps={searchProgress[part.toolCallId]}
               onApprove={onApprove}
               onReject={onReject}
             />

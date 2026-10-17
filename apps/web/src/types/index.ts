@@ -12,6 +12,15 @@ export type Database = {
 
 export type QueryStatus = 'running' | 'success' | 'error';
 
+/** One statement's outcome. A run produces one of these per statement. */
+export type QueryResult = {
+  id: string;
+  sql: string;
+  rows: QueryRow[];
+  durationMs: number | null;
+  error: string | null;
+};
+
 export type QueryHistoryEntry = {
   id: string;
   sql: string;

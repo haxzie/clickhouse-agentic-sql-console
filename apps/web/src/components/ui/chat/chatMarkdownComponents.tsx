@@ -21,6 +21,28 @@ function textOf(children: ReactNode): string {
  * code as plain markup.
  */
 export const chatMarkdownComponents = {
+  /*
+   * Streamdown wraps tables in a card with a copy/download/expand toolbar and
+   * nested borders, which is louder than anything else in the panel. These
+   * render a plain table in the console's own style; the assistant is told not
+   * to repeat query results anyway, so tables here are small by definition.
+   */
+  table: ({ children }: ComponentProps<'table'>) => (
+    <div className="my-2 overflow-x-auto">
+      <table className="w-full border-collapse text-left">{children}</table>
+    </div>
+  ),
+
+  th: ({ children }: ComponentProps<'th'>) => (
+    <th className="text-sub border-b border-neutral-200 px-2 py-1 font-medium tracking-wide text-neutral-500 uppercase">
+      {children}
+    </th>
+  ),
+
+  td: ({ children }: ComponentProps<'td'>) => (
+    <td className="border-b border-neutral-100 px-2 py-1 align-top">{children}</td>
+  ),
+
   // The <pre> wrapper is dropped; the code element renders the block itself.
   pre: ({ children }: ComponentProps<'pre'>) => <>{children}</>,
 

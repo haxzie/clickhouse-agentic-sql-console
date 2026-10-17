@@ -2,43 +2,31 @@ import { create } from 'zustand';
 
 import { runQuery } from '../lib/api.js';
 import { errorMessage } from '../lib/errors.js';
-import type { QueryHistoryEntry, QueryRow } from '../types/index.js';
+import { splitStatements } from '../lib/sql.js';
+import type { QueryHistoryEntry, QueryResult } from '../types/index.js';
 
 /**
- * Query execution and its history.
+ * Query execution, its results and its history.
  *
- * `rows`/`error`/`durationMs` describe the most recent statement, and
- * `durationMs` doubles as the "a query has completed" flag that the results
- * panel uses to tell an empty result apart from a fresh session.
+ * A run produces one result per statement, kept in order so the UI can tab
+ * between them. `results` is empty until the first run completes, which is how
+ * the panel tells "nothing run yet" from "ran and returned nothing".
  */
 type QueryState = {
-  rows: QueryRow[];
-  error: string | null;
-  durationMs: number | null;
+  results: QueryResult[];
+  /** Index into `results`; the tab the user is looking at. */
+  activeResult: number;
   isRunning: boolean;
   /** Newest first; one entry per statement, not per Run. */
   history: QueryHistoryEntry[];
   execute: (sql: string) => Promise<void>;
+  setActiveResult: (index: number) => void;
   clearHistory: () => void;
 };
 
-/**
- * Splits editor contents into runnable statements.
- *
- * Naive on purpose: a `;` inside a string literal or comment would split
- * wrongly. Swap in a real parser if that becomes a problem.
- */
-export function splitStatements(sql: string): string[] {
-  return sql
-    .split(';')
-    .map((statement) => statement.trim())
-    .filter((statement) => statement !== '');
-}
-
 export const useQueryStore = create<QueryState>((set) => ({
-  rows: [],
-  error: null,
-  durationMs: null,
+  results: [],
+  activeResult: 0,
   isRunning: false,
   history: [],
 
@@ -50,10 +38,10 @@ export const useQueryStore = create<QueryState>((set) => ({
       return;
     }
 
-    set({ isRunning: true, error: null });
+    set({ isRunning: true, results: [], activeResult: 0 });
 
-    // Statements run in order and stop at the first failure; only the last
-    // result set stays on screen, while every statement is recorded.
+    // Statements run in order and stop at the first failure. Every one of them
+    // keeps its own result, so the UI can show them side by side.
     for (const statement of statements) {
       const entry: QueryHistoryEntry = {
         id: crypto.randomUUID(),
@@ -68,9 +56,10 @@ export const useQueryStore = create<QueryState>((set) => ({
         const { rows, durationMs } = await runQuery(statement);
 
         set((state) => ({
-          rows,
-          durationMs,
-          error: null,
+          results: [
+            ...state.results,
+            { id: entry.id, sql: statement, rows, durationMs, error: null },
+          ],
           history: updateEntry(state.history, entry.id, {
             status: 'success',
             durationMs,
@@ -81,9 +70,13 @@ export const useQueryStore = create<QueryState>((set) => ({
         const message = errorMessage(cause, 'Query failed');
 
         set((state) => ({
-          rows: [],
-          durationMs: null,
-          error: message,
+          results: [
+            ...state.results,
+            { id: entry.id, sql: statement, rows: [], durationMs: null, error: message },
+          ],
+          // Show the statement that failed rather than leaving the user on a
+          // successful tab from earlier in the run.
+          activeResult: state.results.length,
           history: updateEntry(state.history, entry.id, { status: 'error', error: message }),
         }));
 
@@ -93,6 +86,8 @@ export const useQueryStore = create<QueryState>((set) => ({
 
     set({ isRunning: false });
   },
+
+  setActiveResult: (activeResult) => set({ activeResult }),
 
   clearHistory: () => set({ history: [] }),
 }));

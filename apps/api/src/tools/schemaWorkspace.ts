@@ -5,9 +5,7 @@ import { join } from 'node:path';
 import type { Context } from 'hono';
 
 import { queryRows } from '../lib/clickhouse.js';
-
-/** Internal databases are noise when looking for the user's own data. */
-const EXCLUDED = ["'INFORMATION_SCHEMA'", "'information_schema'", "'system'"].join(', ');
+import { INTERNAL_DATABASES_SQL } from '../lib/databases.js';
 
 /** Rebuilt rather than reused once stale; schemas change under us. */
 const TTL_MS = 5 * 60 * 1000;
@@ -53,14 +51,14 @@ export async function buildSchemaWorkspace(c: Context, connectionId: string): Pr
       c,
       `SELECT database, name, engine, toString(total_rows) AS total_rows, create_table_query
        FROM system.tables
-       WHERE database NOT IN (${EXCLUDED})
+       WHERE database NOT IN (${INTERNAL_DATABASES_SQL})
        ORDER BY database, name`,
     ),
     queryRows<ColumnRow>(
       c,
       `SELECT database, table, name, type, comment
        FROM system.columns
-       WHERE database NOT IN (${EXCLUDED})
+       WHERE database NOT IN (${INTERNAL_DATABASES_SQL})
        ORDER BY database, table, position`,
     ),
   ]);

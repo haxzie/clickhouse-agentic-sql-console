@@ -74,7 +74,7 @@ The API reads these (all optional, defaults shown):
 | `ENCRYPTION_KEY` | insecure dev fallback | Key used to encrypt connection passwords at rest |
 | `ANTHROPIC_API_KEY` | _unset_ | **Required for the assistant**; create one at https://console.anthropic.com/settings/keys |
 | `CHAT_MODEL` | `claude-opus-5-5` | Model used by the assistant |
-| `SEARCH_MODEL` | `claude-haiku-4-5-20251001` | Model used by the schema-search sub-agent |
+| `SEARCH_MODEL` | `claude-haiku-4-5-20251001` | Model used by the schema-search sub-agent and `POST /describe` |
 
 `CLICKHOUSE_URL` seeds the first connection on an empty database; after that,
 connections are managed in the UI and stored in SQLite (Drizzle ORM). Connection
@@ -115,7 +115,9 @@ single tool of its own: `bash`. The connection's schema is written to a
 workspace of line-oriented files (`columns.tsv`, `tables.tsv`,
 `ddl/<db>/<table>.sql`, cached for five minutes), and the sub-agent greps and
 reads its way around before reporting the tables and columns that serve the use
-case, with an instruction for the main agent. The shell is restricted to an
+case, with an instruction for the main agent. Each command it runs is streamed
+back to the browser as a data part on the chat message stream, so the UI shows
+the sub-agent's greps and samples as they happen rather than a spinner. The shell is restricted to an
 allowlist of read-only commands joined by `|`; redirection, command
 substitution, sequencing and unknown binaries are rejected, and it runs with a
 timeout, an output cap and no inherited environment.
@@ -127,9 +129,11 @@ capped by wrapping the query in an outer `LIMIT 50` (ClickHouse's
 `max_result_rows` only breaks on block boundaries and does not cap reliably),
 with a five-second execution limit and `readonly = 2` so the server refuses
 writes even if the statement check is fooled. The other four —
-`get_editor_state`, `str_replace`, `replace_selection`, `insert_at_cursor` and
-`set_query` — are declared on the server but executed in the browser, which
-owns the editor buffer. Each edit carries the `version` token from the last
+`get_editor_state`, `get_last_error`, `run_query`, `str_replace`,
+`replace_selection`, `insert_at_cursor` and `set_query` — are declared on the
+server but executed in the browser, which owns the editor buffer. `run_query`
+goes through the same path as the Run button, so its results land in the
+console's own tabs; it runs reads only, and refuses anything that writes. Each edit carries the `version` token from the last
 `get_editor_state`; if the user typed in the meantime the edit is rejected and
 the model is handed the fresh buffer to retry against, so typing is never
 clobbered.

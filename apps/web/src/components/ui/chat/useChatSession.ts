@@ -13,7 +13,14 @@ import {
   rejectedByUser,
   runEditorTool,
 } from '../../../lib/editorTools.js';
+import {
+  contextForStatement,
+  describeSelection,
+  withSelectionContext,
+} from '../../../lib/selectionContext.js';
+import { useEditorStore } from '../../../stores/useEditorStore.js';
 import { useAssistantStore } from '../../../stores/useAssistantStore.js';
+import type { SearchStep } from './SearchProgress.js';
 
 /**
  * Wraps the AI SDK chat with the pieces this panel needs: the composer draft,
@@ -56,23 +63,31 @@ export function useChatSession() {
   });
 
   const pendingFix = useAssistantStore((state) => state.pendingFix);
-  const startNewChat = useAssistantStore((state) => state.startNewChat);
+  const clearFix = useAssistantStore((state) => state.clearFix);
 
-  // "Fix with AI" drafts a message rather than sending one, so the user stays
-  // in control of what reaches the model.
+  const isBusy = status === 'submitted' || status === 'streaming';
+
+  // "Fix with AI" sends straight away. If a turn is already in flight it is
+  // drafted instead, since sending would interrupt the running request.
   useEffect(() => {
     if (!pendingFix) {
       return;
     }
 
-    setInput(
-      `This ClickHouse query failed:\n\n\`\`\`sql\n${pendingFix.sql}\n\`\`\`\n\nError:\n${pendingFix.error}\n\nWhat is wrong and how do I fix it?`,
-    );
+    // The statement rides along as context, the same way a selection does, so
+    // the transcript shows a pill instead of a wall of inlined SQL.
+    const context = contextForStatement(useEditorStore.getState().sql, pendingFix.sql);
+    const text = `Fix this failing query.\n\nError:\n${pendingFix.error}`;
 
-    startNewChat();
-  }, [pendingFix, startNewChat]);
+    clearFix();
 
-  const isBusy = status === 'submitted' || status === 'streaming';
+    if (isBusy) {
+      setInput(text);
+      return;
+    }
+
+    void sendMessage({ text: withSelectionContext(text, context) });
+  }, [pendingFix, clearFix, isBusy, sendMessage]);
 
   const submit = () => {
     const text = input.trim();
@@ -81,7 +96,10 @@ export function useChatSession() {
       return;
     }
 
-    void sendMessage({ text });
+    // The selection travels with the message, so later steps still see it.
+    const selection = describeSelection(useEditorStore.getState());
+
+    void sendMessage({ text: withSelectionContext(text, selection) });
     setInput('');
   };
 
@@ -148,4 +166,27 @@ export function toolNameOf(part: ToolUIPart): string {
 
 export function messageToolParts(message: UIMessage): ToolUIPart[] {
   return message.parts.filter((part): part is ToolUIPart => part.type.startsWith('tool-'));
+}
+
+/**
+ * Search progress streamed by the server, keyed by the tool call it belongs
+ * to. Writing the same `id` replaces the part, so each call keeps one
+ * growing list rather than a part per step.
+ */
+export function searchProgressByToolCall(message: UIMessage): Record<string, SearchStep[]> {
+  const progress: Record<string, SearchStep[]> = {};
+
+  for (const part of message.parts) {
+    if (part.type !== 'data-search-progress') {
+      continue;
+    }
+
+    const data = (part as { data?: { toolCallId?: string; steps?: SearchStep[] } }).data;
+
+    if (data?.toolCallId && data.steps) {
+      progress[data.toolCallId] = data.steps;
+    }
+  }
+
+  return progress;
 }

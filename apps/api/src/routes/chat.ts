@@ -1,5 +1,6 @@
 import {
   convertToModelMessages,
+  createUIMessageStream,
   createUIMessageStreamResponse,
   stepCountIs,
   streamText,
@@ -33,6 +34,17 @@ Working rules:
   error text comes from the database and names the problem.
 - When the user mentions "the error" without quoting it, call \`get_last_error\`
   to read the last failed run and the statement behind it.
+- You can run queries yourself, but only ones the user can see: \`run_query\`
+  executes the editor's contents. To try a query of your own, write it to the
+  editor first with an editing tool, then call \`run_query\`; pass
+  \`statement\` (copied verbatim from the buffer) to highlight and run just one
+  of several statements. It reads only; leave writes to the user.
+- The console and your tools share one results panel: whatever \`run_query\`
+  returns is already on the user's screen, in a table they can sort, page and
+  export. Never reproduce those rows in your reply — no markdown tables, no
+  lists of values. Summarise instead: how many rows, what they show, and
+  anything notable, such as "9 employees, all in Sales except two managers".
+  Quote a value only when it is the point of the answer, like a single total.
 - After editing, say briefly what changed; do not repeat the whole query.
 - Prefer ClickHouse syntax and functions over generic ANSI SQL. When you show
   SQL in prose, put it in a \`\`\`sql fenced block.`;
@@ -51,17 +63,32 @@ chatRoutes.post('/chat', async (c) => {
     return c.json({ error: "'messages' is required" }, 400);
   }
 
-  const tools = chatTools(c);
+  const messages = body.messages;
 
-  const result = streamText({
-    model: anthropic(env.CHAT_MODEL),
-    system: SYSTEM_PROMPT,
-    tools,
-    stopWhen: stepCountIs(MAX_STEPS),
-    messages: await convertToModelMessages(body.messages, { tools }),
+  // The stream is built here rather than straight from the model so tools can
+  // write to it: the schema search reports each step it takes as a data part.
+  //
+  // `originalMessages` matters when a client-side tool continues a turn: the
+  // request arrives with the assistant message already half-written, and the
+  // response has to carry that same message id so the browser replaces it.
+  // Without it the continuation lands as a second message holding a copy of
+  // the earlier parts, and every tool call shows up twice.
+  const stream = createUIMessageStream({
+    originalMessages: messages,
+    execute: async ({ writer }) => {
+      const tools = chatTools(c, writer);
+
+      const result = streamText({
+        model: anthropic(env.CHAT_MODEL),
+        system: SYSTEM_PROMPT,
+        tools,
+        stopWhen: stepCountIs(MAX_STEPS),
+        messages: await convertToModelMessages(messages, { tools }),
+      });
+
+      writer.merge(toUIMessageStream({ stream: result.stream, tools }));
+    },
   });
 
-  return createUIMessageStreamResponse({
-    stream: toUIMessageStream({ stream: result.stream, tools }),
-  });
+  return createUIMessageStreamResponse({ stream });
 });

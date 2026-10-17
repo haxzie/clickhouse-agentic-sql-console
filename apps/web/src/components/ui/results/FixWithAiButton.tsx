@@ -1,19 +1,16 @@
 import { ArrowRight } from 'lucide-react';
 
 import { useAssistantStore } from '../../../stores/useAssistantStore.js';
-import { useEditorStore } from '../../../stores/useEditorStore.js';
 import { AiSparkleIcon } from '../common/AiSparkleIcon.js';
 
 type FixWithAiButtonProps = {
+  /** The statement that failed, which may be one of several in the editor. */
+  sql: string;
   error: string;
 };
 
-/**
- * Hands the failing statement and its error to the assistant. The chat UI that
- * consumes `pendingFix` is still pending a spec.
- */
-export function FixWithAiButton({ error }: FixWithAiButtonProps) {
-  const sql = useEditorStore((state) => state.sql);
+/** Hands the failing statement and its error to the assistant, which sends straight away. */
+export function FixWithAiButton({ sql, error }: FixWithAiButtonProps) {
   const requestFix = useAssistantStore((state) => state.requestFix);
 
   return (

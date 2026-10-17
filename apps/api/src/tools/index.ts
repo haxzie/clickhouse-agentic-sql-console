@@ -1,9 +1,22 @@
-import { tool, type ToolSet } from 'ai';
+import { tool, type ToolSet, type UIMessageStreamWriter } from 'ai';
 import type { Context } from 'hono';
 import { z } from 'zod';
 
 import { errorMessage } from '../lib/clickhouse.js';
-import { searchSchema } from './searchSchema.js';
+import { searchSchema, type SearchStep } from './searchSchema.js';
+
+/**
+ * Shown to the user while the tool runs, so the assistant narrates itself
+ * rather than the UI guessing from the tool name.
+ */
+const actionInfo = z
+  .string()
+  .describe(
+    'A short, present-tense note on what you are doing and why, shown to the user while this ' +
+      'tool runs. Six words or fewer, no trailing period. Examples: "Looking for revenue ' +
+      'columns", "Checking the current query", "Tightening the WHERE clause", "Rewriting the ' +
+      'query with a join".',
+  );
 
 /**
  * The version token the edit was planned against. Shared by every mutating
@@ -25,7 +38,7 @@ const version = z
  * connection. The editor tools have no `execute`: the SDK forwards them to the
  * browser, which owns the buffer, and streams the result back.
  */
-export function chatTools(c: Context): ToolSet {
+export function chatTools(c: Context, writer: UIMessageStreamWriter): ToolSet {
   return {
     search: tool({
       description:
@@ -33,6 +46,7 @@ export function chatTools(c: Context): ToolSet {
         'returns matching tables, their relevant columns, and an instruction describing how to ' +
         'use them. Prefer this over guessing table or column names.',
       inputSchema: z.object({
+        action_info: actionInfo,
         use_case: z
           .string()
           .describe(
@@ -43,9 +57,23 @@ export function chatTools(c: Context): ToolSet {
           .optional()
           .describe('Restrict the search to one database. Omit to search all user databases.'),
       }),
-      execute: async ({ use_case, database }) => {
+      execute: async ({ use_case, database }, { toolCallId }) => {
+        // Progress is written straight onto the message stream, keyed by the
+        // tool call, so the UI can show the sub-agent working rather than
+        // sitting on a spinner until it finishes.
+        const steps: SearchStep[] = [];
+
+        const onStep = (step: SearchStep) => {
+          steps.push(step);
+          writer.write({
+            type: 'data-search-progress',
+            id: toolCallId,
+            data: { toolCallId, steps },
+          });
+        };
+
         try {
-          return await searchSchema(c, use_case, database);
+          return await searchSchema(c, use_case, database, onStep);
         } catch (error) {
           return { error: errorMessage(error) };
         }
@@ -58,14 +86,33 @@ export function chatTools(c: Context): ToolSet {
       description:
         'Read the SQL editor: the buffer with line numbers, the cursor position, the current ' +
         'selection, the dialect, and a version token. Call this before editing.',
-      inputSchema: z.object({}),
+      inputSchema: z.object({ action_info: actionInfo }),
     }),
 
     get_last_error: tool({
       description:
         'Read the error from the last failed query run in the console, with the statement that ' +
         'produced it. Use it when the user refers to "the error" without pasting it.',
-      inputSchema: z.object({}),
+      inputSchema: z.object({ action_info: actionInfo }),
+    }),
+
+    run_query: tool({
+      description:
+        'Run what is in the editor and read what comes back: columns, row counts, timings and a ' +
+        'sample of rows. This runs the buffer, not SQL of your own: write the query to the ' +
+        'editor first, then run it. Reads only — a statement that writes is refused and left ' +
+        'for the user. Results appear in the console, so the user sees exactly what you ran.',
+      inputSchema: z.object({
+        action_info: actionInfo,
+        statement: z
+          .string()
+          .optional()
+          .describe(
+            'One statement to run, copied verbatim from the editor; it is highlighted and run ' +
+              'on its own. Omit to run the whole buffer (or the user\'s selection). Text that ' +
+              'is not already in the editor is refused.',
+          ),
+      }),
     }),
 
     str_replace: tool({
@@ -73,6 +120,7 @@ export function chatTools(c: Context): ToolSet {
         'Replace an exact, unique snippet in the editor. Preferred for changing part of a long ' +
         'query, because the surrounding formatting and comments survive.',
       inputSchema: z.object({
+        action_info: actionInfo,
         old_str: z
           .string()
           .describe('Exact text to replace, copied verbatim from the buffer. Must match once.'),
@@ -84,6 +132,7 @@ export function chatTools(c: Context): ToolSet {
     replace_selection: tool({
       description: "Replace the user's highlighted text. Use when the request is about it.",
       inputSchema: z.object({
+        action_info: actionInfo,
         text: z.string().describe('Replacement for the selected text.'),
         version,
       }),
@@ -92,6 +141,7 @@ export function chatTools(c: Context): ToolSet {
     insert_at_cursor: tool({
       description: 'Insert text at the cursor without touching the rest of the buffer.',
       inputSchema: z.object({
+        action_info: actionInfo,
         text: z.string().describe('Text to insert.'),
         version,
       }),
@@ -102,6 +152,7 @@ export function chatTools(c: Context): ToolSet {
         'Replace the entire buffer. Use for short queries or a fresh "write me a query that…"; ' +
         'for edits to a long query prefer str_replace so the user formatting survives.',
       inputSchema: z.object({
+        action_info: actionInfo,
         sql: z.string().describe('The complete new contents of the editor.'),
         version,
       }),
@@ -113,6 +164,7 @@ export function chatTools(c: Context): ToolSet {
 export const CLIENT_TOOL_NAMES = [
   'get_editor_state',
   'get_last_error',
+  'run_query',
   'str_replace',
   'replace_selection',
   'insert_at_cursor',

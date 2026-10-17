@@ -34,6 +34,9 @@ export const searchResultSchema = z.object({
 
 export type SearchResult = z.infer<typeof searchResultSchema>;
 
+/** One thing the sub-agent did, reported as it happens. */
+export type SearchStep = { tool: 'bash' | 'run_sql'; detail: string };
+
 /** Enough turns to grep, narrow, read some DDL, sample a column and answer. */
 const MAX_STEPS = 14;
 
@@ -93,7 +96,9 @@ say so in the instruction.`;
 export async function searchSchema(
   c: Context,
   useCase: string,
-  database?: string,
+  database: string | undefined,
+  /** Called as the sub-agent works, so the UI can show its progress. */
+  onStep: (step: SearchStep) => void = () => {},
 ): Promise<SearchResult | { error: string }> {
   const connectionId = c.req.header('x-connection-id') ?? 'default';
   const workspace = await buildSchemaWorkspace(c, connectionId);
@@ -110,7 +115,10 @@ export async function searchSchema(
           'A single read-only statement, e.g. `SELECT DISTINCT currency FROM default.orders`',
         ),
     }),
-    execute: ({ sql }) => runSample(c, sql),
+    execute: ({ sql }) => {
+      onStep({ tool: 'run_sql', detail: sql });
+      return runSample(c, sql);
+    },
   });
 
   const bash = tool({
@@ -120,7 +128,10 @@ export async function searchSchema(
     inputSchema: z.object({
       command: z.string().describe('The command to run, e.g. `grep -i amount columns.tsv`'),
     }),
-    execute: ({ command }) => runInSandbox(command, workspace),
+    execute: ({ command }) => {
+      onStep({ tool: 'bash', detail: command });
+      return runInSandbox(command, workspace);
+    },
   });
 
   const scope = database

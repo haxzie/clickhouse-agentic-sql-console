@@ -32,6 +32,7 @@ type AssistantState = {
   appliedEdits: Record<string, EditPreview>;
 
   requestFix: (sql: string, error: string) => void;
+  clearFix: () => void;
   setEditApproval: (editApproval: EditApproval) => void;
   addPendingEdit: (edit: PendingEdit) => void;
   clearPendingEdit: (toolCallId: string) => void;
@@ -46,6 +47,8 @@ export const useAssistantStore = create<AssistantState>((set) => ({
   appliedEdits: {},
 
   requestFix: (sql, error) => set({ pendingFix: { sql, error, requestedAt: Date.now() } }),
+
+  clearFix: () => set({ pendingFix: null }),
 
   setEditApproval: (editApproval) => set({ editApproval }),
 

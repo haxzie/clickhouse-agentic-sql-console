@@ -8,8 +8,10 @@ type Indicator = {
 /** Dot + label describing the last (or in-flight) execution. */
 export function QueryStatusIndicator() {
   const isRunning = useQueryStore((state) => state.isRunning);
-  const error = useQueryStore((state) => state.error);
-  const durationMs = useQueryStore((state) => state.durationMs);
+  const error = useQueryStore((state) => state.results[state.activeResult]?.error ?? null);
+  const durationMs = useQueryStore(
+    (state) => state.results[state.activeResult]?.durationMs ?? null,
+  );
 
   const indicator = resolveIndicator({ isRunning, error, durationMs });
 

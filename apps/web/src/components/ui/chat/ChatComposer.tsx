@@ -1,7 +1,10 @@
 import { ArrowUp, Square } from 'lucide-react';
 
+import { describeSelection } from '../../../lib/selectionContext.js';
+import { useEditorStore } from '../../../stores/useEditorStore.js';
 import { EditApprovalSelect } from './EditApprovalSelect.js';
-import { useRef, type KeyboardEvent } from 'react';
+import { SelectionPill } from './SelectionPill.js';
+import { useMemo, useRef, type KeyboardEvent } from 'react';
 
 type ChatComposerProps = {
   input: string;
@@ -21,6 +24,17 @@ export function ChatComposer({
 }: ChatComposerProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  // Selected as primitives and derived here: returning a fresh object from the
+  // store selector would give a new reference every render and loop forever.
+  const sql = useEditorStore((state) => state.sql);
+  const selectionStart = useEditorStore((state) => state.selectionStart);
+  const selectionEnd = useEditorStore((state) => state.selectionEnd);
+
+  const selection = useMemo(
+    () => describeSelection({ sql, selectionStart, selectionEnd }),
+    [sql, selectionStart, selectionEnd],
+  );
+
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     // Enter sends; shift+enter keeps the newline.
     if (event.key === 'Enter' && !event.shiftKey) {
@@ -33,7 +47,9 @@ export function ChatComposer({
 
   return (
     <div className="shrink-0 p-3">
-      <div className="flex flex-col rounded-xl border border-neutral-200 bg-white p-2 shadow-sm focus-within:border-neutral-300">
+      <div className="flex flex-col gap-1.5 rounded-xl border border-neutral-200 bg-white p-2 shadow-sm focus-within:border-neutral-300">
+        {selection && <SelectionPill selection={selection} />}
+
         <textarea
           ref={textareaRef}
           value={input}

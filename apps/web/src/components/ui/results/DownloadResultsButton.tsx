@@ -5,7 +5,7 @@ import { useQueryStore } from '../../../stores/useQueryStore.js';
 
 /** Exports the full result set (not just the current page) as CSV. */
 export function DownloadResultsButton() {
-  const rows = useQueryStore((state) => state.rows);
+  const rows = useQueryStore((state) => state.results[state.activeResult]?.rows ?? []);
 
   const onDownload = () => {
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');

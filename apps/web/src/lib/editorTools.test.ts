@@ -4,6 +4,7 @@ import { useEditorStore } from '../stores/useEditorStore.js';
 import { useQueryStore } from '../stores/useQueryStore.js';
 import {
   getEditorState,
+  runQueryTool,
   getLastError,
   insertAtCursor,
   replaceSelection,
@@ -21,7 +22,7 @@ const stubValidation = (body: unknown = { valid: true }) => {
 
 const reset = (sql: string) => {
   useEditorStore.setState({ sql, version: 1, selectionStart: 0, selectionEnd: 0 });
-  useQueryStore.setState({ history: [], error: null });
+  useQueryStore.setState({ history: [], results: [], activeResult: 0 });
   stubValidation();
 };
 
@@ -185,3 +186,87 @@ describe('get_last_error', () => {
     });
   });
 });
+
+describe('run_query', () => {
+  beforeEach(() => reset('SELECT 1'));
+
+  it('refuses a statement that writes, without running it', async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+    reset('DROP TABLE northwind.orders');
+
+    const result = await runQueryTool();
+
+    expect(result.ok).toBe(false);
+    expect(result).toHaveProperty('error', expect.stringContaining('DROP'));
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('refuses a write hidden among reads', async () => {
+    reset('SELECT 1; INSERT INTO t VALUES (1)');
+
+    const result = await runQueryTool();
+
+    expect(result.ok).toBe(false);
+    expect(result).toHaveProperty('error', expect.stringContaining('INSERT'));
+  });
+
+  it('refuses when there is nothing to run', async () => {
+    reset('');
+    const result = await runQueryTool();
+
+    expect(result).toEqual({ ok: false, error: 'Nothing to run: the editor is empty.' });
+  });
+
+  it('refuses a statement the editor does not contain', async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const result = await runQueryTool('SELECT 2');
+
+    expect(result.ok).toBe(false);
+    expect(result).toHaveProperty('error', expect.stringContaining('not in the editor'));
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('selects the named statement and runs only that one', async () => {
+    reset('SELECT 1;\nSELECT number AS n FROM numbers(25)');
+    stubRows(25);
+
+    const result = await runQueryTool('SELECT number AS n FROM numbers(25)');
+
+    expect(result.ok).toBe(true);
+    expect(result.ok && result.results).toHaveLength(1);
+    expect(useEditorStore.getState()).toMatchObject({ selectionStart: 10, selectionEnd: 45 });
+  });
+
+  it('reports columns, counts and a capped sample', async () => {
+    reset('SELECT number AS n FROM numbers(25)');
+    stubRows(25);
+
+    const result = await runQueryTool();
+
+    expect(result.ok).toBe(true);
+    expect(result).toMatchObject({
+      results: [{ rowCount: 25, columns: ['n'], truncated: true, durationMs: 4 }],
+    });
+    expect(result.ok && result.results[0].sampleRows).toHaveLength(10);
+  });
+});
+
+/** A successful /query response with `count` single-column rows. */
+function stubRows(count: number) {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            rows: Array.from({ length: count }, (_, index) => ({ n: index })),
+            durationMs: 4,
+          }),
+          { status: 200 },
+        ),
+    ),
+  );
+}

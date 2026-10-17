@@ -24,6 +24,7 @@
     "rangi": "^2.2.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
+    "sql-formatter": "^15.9.0",
     "streamdown": "^2.7.0",
     "zustand": "^5.0.15"
   },

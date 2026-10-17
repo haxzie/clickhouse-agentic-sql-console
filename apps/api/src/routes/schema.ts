@@ -1,10 +1,9 @@
 import { Hono } from 'hono';
 
 import { errorMessage, queryRows } from '../lib/clickhouse.js';
+import { INTERNAL_DATABASES_SQL } from '../lib/databases.js';
 
 export const schemaRoutes = new Hono();
-
-const INTERNAL_DATABASES = ["'INFORMATION_SCHEMA'", "'information_schema'"].join(', ');
 
 /** Databases with their table names. Columns are fetched lazily per table. */
 schemaRoutes.get('/schema', async (c) => {
@@ -15,14 +14,14 @@ schemaRoutes.get('/schema', async (c) => {
         c,
         `SELECT name
          FROM system.databases
-         WHERE name NOT IN (${INTERNAL_DATABASES})
+         WHERE name NOT IN (${INTERNAL_DATABASES_SQL})
          ORDER BY name`,
       ),
       queryRows<{ database: string; name: string }>(
         c,
         `SELECT database, name
          FROM system.tables
-         WHERE database NOT IN (${INTERNAL_DATABASES})
+         WHERE database NOT IN (${INTERNAL_DATABASES_SQL})
          ORDER BY database, name`,
       ),
     ]);

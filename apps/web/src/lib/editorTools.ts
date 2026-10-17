@@ -1,5 +1,6 @@
 import { useEditorStore } from '../stores/useEditorStore.js';
-import { useQueryStore, splitStatements } from '../stores/useQueryStore.js';
+import { useQueryStore } from '../stores/useQueryStore.js';
+import { isReadOnly, runTarget, splitStatements } from './sql.js';
 import { validateStatements, type SqlValidation } from './api.js';
 
 /**
@@ -174,8 +175,7 @@ export type LastError =
  * history entry also carries the statement that produced it.
  */
 export function getLastError(): LastError {
-  const { history, error } = useQueryStore.getState();
-  const failed = history.find((entry) => entry.status === 'error');
+  const failed = useQueryStore.getState().history.find((entry) => entry.status === 'error');
 
   if (failed?.error) {
     return {
@@ -186,11 +186,100 @@ export function getLastError(): LastError {
     };
   }
 
-  if (error) {
-    return { hasError: true, error, sql: useEditorStore.getState().sql, executedAt: '' };
+  return { hasError: false };
+}
+
+/** Rows the assistant sees per statement; enough to summarise, not to dump. */
+const SAMPLE_ROWS = 10;
+const MAX_CELL_CHARS = 200;
+
+export type RunOutcome =
+  | {
+      ok: true;
+      results: {
+        sql: string;
+        rowCount: number;
+        durationMs: number | null;
+        columns: string[];
+        sampleRows: Record<string, string>[];
+        truncated: boolean;
+        error: string | null;
+      }[];
+    }
+  | { ok: false; error: string };
+
+/**
+ * Runs what is in the editor, the same way the Run button does: through the
+ * shared store, so the results land in the console's own tabs.
+ *
+ * The assistant cannot run SQL of its own. A statement it wants to try has to
+ * be written into the buffer first, which is what `statement` picks out: the
+ * text must already be there, and running it highlights it exactly as if the
+ * user had selected it. So the editor always shows the query behind a result.
+ *
+ * Reads only. Anything that writes is refused and handed back to the user,
+ * who can see the statement and press Run themselves.
+ */
+export async function runQueryTool(statement?: string): Promise<RunOutcome> {
+  const wanted = statement?.trim().replace(/;$/, '').trim();
+
+  if (wanted) {
+    const { sql, setSelection } = useEditorStore.getState();
+    const index = sql.indexOf(wanted);
+
+    if (index === -1) {
+      return {
+        ok: false,
+        error:
+          'That statement is not in the editor. Write it there first (set_query, str_replace or ' +
+          'insert_at_cursor), then run it. Copy the text verbatim from the buffer.',
+      };
+    }
+
+    setSelection(index, index + wanted.length);
   }
 
-  return { hasError: false };
+  const target = runTarget(useEditorStore.getState());
+
+  if (target.statements.length === 0) {
+    return { ok: false, error: 'Nothing to run: the editor is empty.' };
+  }
+
+  const writes = target.statements.filter((statement) => !isReadOnly(statement));
+
+  if (writes.length > 0) {
+    return {
+      ok: false,
+      error:
+        `Refused: \`${writes[0].split(/\s+/)[0].toUpperCase()}\` writes to the database, and ` +
+        'this tool only runs reads. Put the statement in the editor and ask the user to run it.',
+    };
+  }
+
+  await useQueryStore.getState().execute(target.sql);
+
+  return {
+    ok: true,
+    results: useQueryStore.getState().results.map((result) => ({
+      sql: result.sql,
+      rowCount: result.rows.length,
+      durationMs: result.durationMs,
+      columns: Object.keys(result.rows[0] ?? {}),
+      sampleRows: result.rows.slice(0, SAMPLE_ROWS).map(sampleRow),
+      truncated: result.rows.length > SAMPLE_ROWS,
+      error: result.error,
+    })),
+  };
+}
+
+function sampleRow(row: Record<string, unknown>): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(row).map(([key, value]) => {
+      const text = value === null || value === undefined ? '' : String(value);
+
+      return [key, text.length > MAX_CELL_CHARS ? `${text.slice(0, MAX_CELL_CHARS)}…` : text];
+    }),
+  );
 }
 
 /** The buffer before and after an edit, without applying it. */
@@ -263,7 +352,7 @@ export function rejectedByUser(): ToolResult {
 export function runEditorTool(
   name: string,
   input: unknown,
-): Promise<ToolResult> | EditorState | LastError | undefined {
+): Promise<ToolResult | RunOutcome> | EditorState | LastError | undefined {
   const args = (input ?? {}) as Record<string, unknown>;
   const version = Number(args.version);
 
@@ -272,6 +361,8 @@ export function runEditorTool(
       return getEditorState();
     case 'get_last_error':
       return getLastError();
+    case 'run_query':
+      return runQueryTool(typeof args.statement === 'string' ? args.statement : undefined);
     case 'str_replace':
       return strReplace(String(args.old_str ?? ''), String(args.new_str ?? ''), version);
     case 'replace_selection':
