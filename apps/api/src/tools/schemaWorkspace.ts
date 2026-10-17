@@ -1,7 +1,3 @@
-import { mkdir, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-
 import type { Context } from 'hono';
 
 import { queryRows } from '../lib/clickhouse.js';
@@ -10,7 +6,11 @@ import { INTERNAL_DATABASES_SQL } from '../lib/databases.js';
 /** Rebuilt rather than reused once stale; schemas change under us. */
 const TTL_MS = 5 * 60 * 1000;
 
-const ROOT = join(tmpdir(), 'clickhouse-ai-schema');
+/** Where the files sit inside the sandbox, and the shell's working directory. */
+export const WORKSPACE_DIR = '/schema';
+
+/** Absolute path inside the sandbox -> file contents. */
+export type SchemaFiles = Record<string, string>;
 
 type TableRow = {
   database: string;
@@ -28,22 +28,28 @@ type ColumnRow = {
   comment: string;
 };
 
-const builtAt = new Map<string, number>();
+type CachedFiles = { files: SchemaFiles; builtAt: number };
+
+const cache = new Map<string, CachedFiles>();
 
 /**
- * Writes the connection's schema to a directory the search agent explores with
- * bash. Everything is line-oriented and lives in predictable paths, because
- * the agent reaches for `grep` far more often than it reads a whole file.
+ * The connection's schema as a set of files for the search sub-agent to
+ * explore with bash. Everything is line-oriented and lives in predictable
+ * paths, because the agent reaches for `grep` far more often than it reads a
+ * whole file.
+ *
+ * These are handed to just-bash as a virtual filesystem rather than written to
+ * disk: nothing the sub-agent runs touches the host, and a search cannot read
+ * a path that was never put in the map.
  *
  * Cached per connection for a few minutes: a conversation usually runs several
  * searches, and re-dumping the schema each time is pure latency.
  */
-export async function buildSchemaWorkspace(c: Context, connectionId: string): Promise<string> {
-  const dir = join(ROOT, encodeURIComponent(connectionId));
-  const builtAgo = Date.now() - (builtAt.get(dir) ?? 0);
+export async function buildSchemaFiles(c: Context, connectionId: string): Promise<SchemaFiles> {
+  const cached = cache.get(connectionId);
 
-  if (builtAgo < TTL_MS) {
-    return dir;
+  if (cached && Date.now() - cached.builtAt < TTL_MS) {
+    return cached.files;
   }
 
   const [tables, columns] = await Promise.all([
@@ -63,35 +69,19 @@ export async function buildSchemaWorkspace(c: Context, connectionId: string): Pr
     ),
   ]);
 
-  await rm(dir, { recursive: true, force: true });
-  await mkdir(join(dir, 'ddl'), { recursive: true });
+  const files: SchemaFiles = {
+    [`${WORKSPACE_DIR}/README.md`]: readme(),
+    [`${WORKSPACE_DIR}/tables.tsv`]: tablesTsv(tables),
+    [`${WORKSPACE_DIR}/columns.tsv`]: columnsTsv(columns),
+  };
 
-  await Promise.all([
-    writeFile(join(dir, 'README.md'), readme(), 'utf8'),
-    writeFile(join(dir, 'tables.tsv'), tablesTsv(tables), 'utf8'),
-    writeFile(join(dir, 'columns.tsv'), columnsTsv(columns), 'utf8'),
-    ...(await writeDdl(dir, tables)),
-  ]);
+  for (const table of tables) {
+    files[`${WORKSPACE_DIR}/ddl/${table.database}/${table.name}.sql`] = table.create_table_query;
+  }
 
-  builtAt.set(dir, Date.now());
+  cache.set(connectionId, { files, builtAt: Date.now() });
 
-  return dir;
-}
-
-async function writeDdl(dir: string, tables: TableRow[]): Promise<Promise<void>[]> {
-  const databases = [...new Set(tables.map((table) => table.database))];
-
-  await Promise.all(
-    databases.map((database) => mkdir(join(dir, 'ddl', database), { recursive: true })),
-  );
-
-  return tables.map((table) =>
-    writeFile(
-      join(dir, 'ddl', table.database, `${table.name}.sql`),
-      table.create_table_query,
-      'utf8',
-    ),
-  );
+  return files;
 }
 
 function tablesTsv(tables: TableRow[]): string {

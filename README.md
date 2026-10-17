@@ -63,18 +63,21 @@ docker compose down -v && docker compose up -d
 
 ### Environment variables
 
-The API reads these (all optional, defaults shown):
+The API validates its environment at startup (`apps/api/src/env.ts`, zod). A
+missing or malformed variable stops the process with a message naming it,
+rather than failing later as `NaN` or an empty key.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
+| `ANTHROPIC_API_KEY` | **required** | The assistant's key; create one at https://console.anthropic.com/settings/keys |
 | `CLICKHOUSE_URL` | `http://localhost:8123` | ClickHouse HTTP endpoint |
 | `PORT` | `8080` | API port |
 | `WEB_ORIGIN` | `http://localhost:5173` | Allowed CORS origin |
 | `DATABASE_PATH` | `apps/api/data/app.db` | SQLite file holding saved connections |
-| `ENCRYPTION_KEY` | insecure dev fallback | Key used to encrypt connection passwords at rest |
-| `ANTHROPIC_API_KEY` | _unset_ | **Required for the assistant**; create one at https://console.anthropic.com/settings/keys |
+| `ENCRYPTION_KEY` | insecure dev fallback | Key used to encrypt connection passwords at rest; **required** when `NODE_ENV=production` |
 | `CHAT_MODEL` | `claude-opus-5-5` | Model used by the assistant |
 | `SEARCH_MODEL` | `claude-haiku-4-5-20251001` | Model used by the schema-search sub-agent and `POST /describe` |
+| `NODE_ENV` | `development` | `production` tightens the two requirements above |
 
 `CLICKHOUSE_URL` seeds the first connection on an empty database; after that,
 connections are managed in the UI and stored in SQLite (Drizzle ORM). Connection
@@ -103,53 +106,135 @@ Create a key at <https://console.anthropic.com/settings/keys>. The API loads
 `apps/api`; a real environment variable of the same name takes precedence, so
 `ANTHROPIC_API_KEY=... pnpm dev` works too. `.env` is gitignored.
 
-Without a key the console still works — browse the schema, run queries, read
-results — and only the assistant returns a 503 saying the key is missing. The
-API also logs a warning at startup.
+The key is required: the API validates its environment at startup and refuses
+to start without one, naming the variable, rather than letting the first chat
+message fail.
 
 `@ai-sdk/openai` is installed if you would rather swap the provider in
 `apps/api/src/routes/chat.ts` and `apps/api/src/lib/model.ts`.
 
-The assistant has five tools. `search` runs on the API as a sub-agent with a
-single tool of its own: `bash`. The connection's schema is written to a
-workspace of line-oriented files (`columns.tsv`, `tables.tsv`,
-`ddl/<db>/<table>.sql`, cached for five minutes), and the sub-agent greps and
-reads its way around before reporting the tables and columns that serve the use
-case, with an instruction for the main agent. Each command it runs is streamed
-back to the browser as a data part on the chat message stream, so the UI shows
-the sub-agent's greps and samples as they happen rather than a spinner. The shell is restricted to an
-allowlist of read-only commands joined by `|`; redirection, command
-substitution, sequencing and unknown binaries are rejected, and it runs with a
-timeout, an output cap and no inherited environment.
+## The assistant
 
-The sub-agent also has `run_sql` for sampling the data itself — distinct values,
-date ranges, how often a column is empty — so it can confirm what a column holds
-rather than trusting its name. Statements must be a single read; results are
-capped by wrapping the query in an outer `LIMIT 50` (ClickHouse's
-`max_result_rows` only breaks on block boundaries and does not cap reliably),
-with a five-second execution limit and `readonly = 2` so the server refuses
-writes even if the statement check is fooled. The other four —
-`get_editor_state`, `get_last_error`, `run_query`, `str_replace`,
-`replace_selection`, `insert_at_cursor` and `set_query` — are declared on the
-server but executed in the browser, which owns the editor buffer. `run_query`
-goes through the same path as the Run button, so its results land in the
-console's own tabs; it runs reads only, and refuses anything that writes. Each edit carries the `version` token from the last
-`get_editor_state`; if the user typed in the meantime the edit is rejected and
-the model is handed the fresh buffer to retry against, so typing is never
-clobbered.
+### Tools
+
+| Tool | Runs on | What it does |
+| --- | --- | --- |
+| `search` | API | Finds the tables and columns for a use case. A sub-agent with its own tools; see below. |
+| `get_editor_state` | Browser | The buffer with line numbers, the cursor, the selection, and a `version` token. |
+| `get_last_error` | Browser | The last failed run from the console, with the statement behind it. |
+| `run_query` | Browser | Runs what is in the editor and returns columns, row counts, timings and a sample. |
+| `str_replace` | Browser | Replaces an exact, unique snippet, leaving surrounding formatting alone. |
+| `replace_selection` | Browser | Replaces the highlighted text. |
+| `insert_at_cursor` | Browser | Inserts at the cursor. |
+| `set_query` | Browser | Rewrites the whole buffer. |
+
+Only `search` has a server-side `execute`; it needs the ClickHouse connection.
+The rest are declared on the server without one, so the AI SDK forwards the
+call to the browser, which owns the editor buffer and streams the result back
+(`apps/web/src/lib/editorTools.ts`). Every tool also takes `action_info`: a
+short present-tense note the model writes for itself, which is what the chat
+shows while the call runs, instead of the UI guessing from the tool name.
+
+### Schema search
+
+`search` is a sub-agent (Haiku, `apps/api/src/tools/searchSchema.ts`) with two
+tools of its own:
+
+- **`bash`** over the connection's schema, written as line-oriented files:
+  `columns.tsv`, `tables.tsv`, `ddl/<db>/<table>.sql` and a `README.md`, cached
+  for five minutes per connection. It greps and reads its way around rather
+  than being handed a schema dump, which is what makes wide databases
+  tractable — a use case about revenue can be matched against `amount`,
+  `price`, `total` or `gross` without any of them fitting in a prompt.
+- **`run_sql`** for sampling the data itself — distinct values, date ranges,
+  how often a column is empty — so it can confirm what a column holds rather
+  than trusting its name. One read-only statement per call, capped by wrapping
+  it in an outer `LIMIT 50` (ClickHouse's `max_result_rows` only breaks on
+  block boundaries and does not cap reliably), with a five-second execution
+  limit and `readonly = 2` so the server refuses writes even if the statement
+  check is fooled.
+
+The shell is [just-bash](https://github.com/vercel-labs/just-bash): a simulated
+bash over an in-memory filesystem holding those files and nothing else. There
+is no host process, no network and no path outside the map, so commands need no
+allowlist. Each one it runs is streamed back to the browser as a data part on
+the chat stream, so the transcript shows the greps and samples as they happen
+and folds them into an accordion once the call finishes.
+
+It returns the matching tables and columns plus an `instruction` for the main
+agent describing how to use them.
+
+### Editing the query
+
+Edits are made against a version, not a guess:
+
+1. The model calls `get_editor_state` and receives the buffer plus a `version`.
+2. It passes that `version` to the editing tool.
+3. If the user typed in the meantime the version no longer matches, the edit is
+   rejected and the model is handed the fresh buffer to retry against.
+
+So an edit planned against text the user has since changed is never applied —
+typing during a turn cannot be clobbered.
 
 Every applied edit is then validated: the resulting statements are checked with
 `EXPLAIN SYNTAX` on the connected server (`POST /validate`), which catches
 syntax errors, unknown tables and unknown columns without running anything. The
 tool result carries a `validation` field, so a broken buffer is reported in the
-step that broke it rather than when the user next hits Run. A sixth tool,
-`get_last_error`, returns the last failed run from the console with the
-statement behind it, for when the user says "fix the error" without quoting
-it.
+step that broke it rather than when the user next hits Run.
+
+The dropdown in the composer decides what happens before an edit lands. Under
+**Ask before edits** the call is held, the diff is shown with Approve/Reject,
+and the model's turn stays paused until you choose. Under **Always allow
+edits** it applies and the diff is shown after the fact.
+
+### Running queries
+
+`run_query` executes the editor's contents through the same store as the Run
+button, so results land in the console's own tabs and the user sees exactly
+what ran. It cannot run SQL of its own: to try something, the model writes it
+to the editor first. Passing `statement` (copied verbatim from the buffer)
+highlights that one statement and runs it alone; text that is not already in
+the editor is refused. It runs reads only — anything that writes is handed back
+for the user to run themselves.
+
+Because the results are already on screen in a table that sorts, pages and
+exports, the system prompt tells the model not to reprint the rows in chat and
+to summarise instead.
+
+### Context and connections
+
+Highlighting SQL in the editor attaches it to the next message as a pill, so
+the model sees the statement you mean without you pasting it. "Fix with AI" on
+a failed result uses the same mechanism, sending only the statement that failed
+rather than the whole buffer.
+
+Every chat request carries the active connection, so the assistant always reads
+the database that is on screen. Switching data sources starts a fresh
+conversation: its searches, the tables it named and the queries it ran all
+belong to the connection they happened on.
+
+### Stopping
+
+Stopping a turn aborts the request, and everything the turn started hangs off
+that signal: the model, the search sub-agent, each bash command and each sample
+query. Tool calls left open are closed as stopped on both sides, so the next
+message continues the conversation instead of failing on a call that never
+came back.
 
 ## Start the application
 
-`pnpm dev` starts both apps (API on :8080, web on :5173, proxying `/api/*` to the API).
+```
+pnpm start
+```
+
+Builds the console and serves everything from the API on
+<http://localhost:8080>: `/` is the React app, `/api/*` is the API, and any
+other path falls back to the app so deep links work. One process, one origin,
+no CORS.
+
+For development, `pnpm dev` runs the two separately — API on :8080, web on
+:5173 — with Vite forwarding `/api/*` to the API. The browser calls `/api/*`
+either way, so the two environments address the API identically.
 
 Individually:
 

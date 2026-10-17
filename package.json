@@ -10,7 +10,7 @@
   "scripts": {
     "dev": "pnpm --parallel --filter \"./apps/*\" dev",
     "build": "pnpm --filter \"./apps/*\" build",
-    "start": "pnpm --parallel --filter \"./apps/*\" start",
+    "start": "pnpm build && pnpm --filter @clickhouse-ai/api start",
     "test": "pnpm --filter \"./apps/*\" test",
     "typecheck": "pnpm --filter \"./apps/*\" typecheck"
   },

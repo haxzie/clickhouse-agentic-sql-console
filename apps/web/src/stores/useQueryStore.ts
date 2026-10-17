@@ -38,7 +38,23 @@ export const useQueryStore = create<QueryState>((set) => ({
       return;
     }
 
-    set({ isRunning: true, results: [], activeResult: 0 });
+    set({ isRunning: true });
+
+    // The previous run stays on screen, dimmed, until the first new result
+    // arrives: clearing up front flashes the empty state between runs. Results
+    // accumulate here and replace the old set on the first commit.
+    const next: QueryResult[] = [];
+
+    const commit = (result: QueryResult) => {
+      next.push(result);
+
+      set((state) => ({
+        results: [...next],
+        // The first commit replaces a set the index may not fit; after that
+        // only a failure moves the user, onto the statement that failed.
+        activeResult: result.error ? next.length - 1 : next.length === 1 ? 0 : state.activeResult,
+      }));
+    };
 
     // Statements run in order and stop at the first failure. Every one of them
     // keeps its own result, so the UI can show them side by side.
@@ -55,11 +71,9 @@ export const useQueryStore = create<QueryState>((set) => ({
       try {
         const { rows, durationMs } = await runQuery(statement);
 
+        commit({ id: entry.id, sql: statement, rows, durationMs, error: null });
+
         set((state) => ({
-          results: [
-            ...state.results,
-            { id: entry.id, sql: statement, rows, durationMs, error: null },
-          ],
           history: updateEntry(state.history, entry.id, {
             status: 'success',
             durationMs,
@@ -69,14 +83,9 @@ export const useQueryStore = create<QueryState>((set) => ({
       } catch (cause) {
         const message = errorMessage(cause, 'Query failed');
 
+        commit({ id: entry.id, sql: statement, rows: [], durationMs: null, error: message });
+
         set((state) => ({
-          results: [
-            ...state.results,
-            { id: entry.id, sql: statement, rows: [], durationMs: null, error: message },
-          ],
-          // Show the statement that failed rather than leaving the user on a
-          // successful tab from earlier in the run.
-          activeResult: state.results.length,
           history: updateEntry(state.history, entry.id, { status: 'error', error: message }),
         }));
 

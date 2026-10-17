@@ -20,8 +20,20 @@ type EditorState = {
   setSelection: (start: number, end: number) => void;
 };
 
+/**
+ * What an empty console starts with: the two things worth knowing, written as
+ * SQL so they run (and delete) like anything else in the buffer.
+ *
+ * No semicolons in the text — statements are split on them, comment or not,
+ * so one here would read as a second statement and show on the Run button.
+ */
+const WELCOME = `-- Write SQL here, or ask the assistant on the right to write it for you.
+-- \u2318\u21B5 runs the editor. Select part of it to run only that.
+
+SELECT 1`;
+
 export const useEditorStore = create<EditorState>((set) => ({
-  sql: 'SELECT 1',
+  sql: WELCOME,
   version: 1,
   selectionStart: 0,
   selectionEnd: 0,

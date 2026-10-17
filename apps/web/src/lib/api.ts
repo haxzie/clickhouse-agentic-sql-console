@@ -10,12 +10,20 @@ export function setActiveConnectionId(id: string | null): void {
   activeConnectionId = id;
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const headers = new Headers(init?.headers);
+/**
+ * The header that tells the API which connection to use.
+ *
+ * Exported because the chat stream is fetched by the AI SDK's transport rather
+ * than through `request`, and it has to target the same connection as
+ * everything else — otherwise the assistant reads a different database than
+ * the one on screen.
+ */
+export function connectionHeaders(): Record<string, string> {
+  return activeConnectionId ? { 'x-connection-id': activeConnectionId } : {};
+}
 
-  if (activeConnectionId) {
-    headers.set('x-connection-id', activeConnectionId);
-  }
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const headers = new Headers({ ...connectionHeaders(), ...headersOf(init) });
 
   const response = await fetch(`/api${path}`, { ...init, headers });
   const payload = (await response.json()) as T & { error?: string };
@@ -25,6 +33,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
 
   return payload;
+}
+
+/** `RequestInit['headers']` in a form that spreads. */
+function headersOf(init?: RequestInit): Record<string, string> {
+  return Object.fromEntries(new Headers(init?.headers).entries());
 }
 
 export function runQuery(sql: string): Promise<{ rows: QueryRow[]; durationMs: number }> {

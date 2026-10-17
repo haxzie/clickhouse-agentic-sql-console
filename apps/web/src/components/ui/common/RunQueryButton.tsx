@@ -2,6 +2,7 @@ import { Command, CornerDownLeft, Play } from 'lucide-react';
 
 import { useMemo } from 'react';
 
+import { runEditor } from '../../../lib/runEditor.js';
 import { runTarget, type RunTarget } from '../../../lib/sql.js';
 import { useEditorStore } from '../../../stores/useEditorStore.js';
 import { useQueryStore } from '../../../stores/useQueryStore.js';
@@ -9,7 +10,6 @@ import { useQueryStore } from '../../../stores/useQueryStore.js';
 /** Runs whatever is currently in the editor. */
 export function RunQueryButton() {
   const isRunning = useQueryStore((state) => state.isRunning);
-  const execute = useQueryStore((state) => state.execute);
   const sql = useEditorStore((state) => state.sql);
   const selectionStart = useEditorStore((state) => state.selectionStart);
   const selectionEnd = useEditorStore((state) => state.selectionEnd);
@@ -27,7 +27,7 @@ export function RunQueryButton() {
   return (
     <button
       type="button"
-      onClick={() => void execute(target.sql)}
+      onClick={runEditor}
       disabled={isRunning || !hasStatements}
       className="flex h-[34px] cursor-pointer items-center gap-2 rounded bg-neutral-900 pr-[5px] pl-3 font-medium text-white hover:bg-neutral-700 disabled:cursor-not-allowed disabled:opacity-40"
     >

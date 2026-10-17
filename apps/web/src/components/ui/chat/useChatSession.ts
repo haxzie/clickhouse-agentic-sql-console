@@ -5,8 +5,9 @@ import {
   type ToolUIPart,
   type UIMessage,
 } from 'ai';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
+import { connectionHeaders } from '../../../lib/api.js';
 import {
   isEditTool,
   previewEdit,
@@ -19,6 +20,7 @@ import {
   withSelectionContext,
 } from '../../../lib/selectionContext.js';
 import { closeStoppedToolCalls } from '../../../lib/stoppedTurn.js';
+import { useConnectionStore } from '../../../stores/useConnectionStore.js';
 import { useEditorStore } from '../../../stores/useEditorStore.js';
 import { useAssistantStore } from '../../../stores/useAssistantStore.js';
 import type { SearchStep } from './SearchProgress.js';
@@ -35,7 +37,9 @@ export function useChatSession() {
   const [input, setInput] = useState('');
 
   const { messages, sendMessage, status, error, stop, setMessages, addToolResult } = useChat({
-    transport: new DefaultChatTransport({ api: '/api/chat' }),
+    // Headers are a function so each request reads the connection that is
+    // active now, not the one that was active when the panel mounted.
+    transport: new DefaultChatTransport({ api: '/api/chat', headers: connectionHeaders }),
     sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
     onToolCall: async ({ toolCall }) => {
       const { toolName, toolCallId, input } = toolCall;
@@ -158,6 +162,25 @@ export function useChatSession() {
     setMessages([]);
     setInput('');
   };
+
+  // A conversation is about one database: its searches, the tables it named
+  // and the queries it ran all belong to the connection it happened on.
+  // Switching sources starts a fresh one rather than letting the model answer
+  // from a schema that is no longer on screen.
+  const activeConnectionId = useConnectionStore((state) => state.activeId);
+  const resetRef = useRef(reset);
+  const lastConnectionId = useRef(activeConnectionId);
+
+  resetRef.current = reset;
+
+  useEffect(() => {
+    if (lastConnectionId.current === activeConnectionId) {
+      return;
+    }
+
+    lastConnectionId.current = activeConnectionId;
+    resetRef.current();
+  }, [activeConnectionId]);
 
   return {
     messages,

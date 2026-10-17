@@ -3,10 +3,11 @@ import type { Context } from 'hono';
 import { z } from 'zod';
 
 import { env } from '../env.js';
+import { getConnection } from '../lib/connections.js';
 import { anthropic } from '../lib/model.js';
 import { runSample } from './runSql.js';
-import { runInSandbox } from './sandboxBash.js';
-import { buildSchemaWorkspace } from './schemaWorkspace.js';
+import { createSchemaShell, runInShell } from './schemaShell.js';
+import { buildSchemaFiles } from './schemaWorkspace.js';
 
 export const searchResultSchema = z.object({
   matches: z
@@ -46,8 +47,9 @@ ClickHouse database.
 You have two tools.
 
 \`bash\` explores the schema, which has been written to files in your working directory.
-It runs read-only commands (ls, cat, grep, head, find, wc, sort, uniq, cut, awk, sed, tr,
-column, nl) optionally joined by \`|\`. There is no network and no writes.
+It is a real shell over those files — ls, cat, grep, awk, sed, cut, sort, uniq, head,
+find, wc and friends, with pipes and redirection. There is no network, and the filesystem
+holds nothing but this schema, so explore freely.
 
 \`run_sql\` samples the data itself, so you can confirm what a column actually holds
 rather than trusting its name. It is read-only, returns at most 50 rows, and times out
@@ -106,8 +108,16 @@ export async function searchSchema(
    */
   abortSignal?: AbortSignal,
 ): Promise<SearchResult | { error: string }> {
-  const connectionId = c.req.header('x-connection-id') ?? 'default';
-  const workspace = await buildSchemaWorkspace(c, connectionId);
+  // Keyed by the connection the request resolves to, not by the header alone:
+  // the workspace is cached on disk, and a wrong key would hand the sub-agent
+  // another database's tables.
+  const connectionId = getConnection(c.req.header('x-connection-id'))?.id;
+
+  if (!connectionId) {
+    return { error: 'No ClickHouse connection configured.' };
+  }
+
+  const shell = createSchemaShell(await buildSchemaFiles(c, connectionId));
 
   const runSql = tool({
     description:
@@ -129,14 +139,15 @@ export async function searchSchema(
 
   const bash = tool({
     description:
-      'Run a read-only shell command in the schema workspace. Commands may be joined with ' +
-      '`|`. Writes, redirection, command substitution and network access are rejected.',
+      'Run a shell command in the schema workspace: a bash environment whose filesystem holds ' +
+      "this connection's schema and nothing else. Pipes, redirection and the usual text tools " +
+      'all work. There is no network.',
     inputSchema: z.object({
       command: z.string().describe('The command to run, e.g. `grep -i amount columns.tsv`'),
     }),
     execute: ({ command }) => {
       onStep({ tool: 'bash', detail: command });
-      return runInSandbox(command, workspace, abortSignal);
+      return runInShell(shell, command, abortSignal);
     },
   });
 
