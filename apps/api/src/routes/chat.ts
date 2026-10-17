@@ -10,6 +10,7 @@ import {
 import { Hono } from 'hono';
 
 import { env } from '../env.js';
+import { closeStoppedToolCalls } from '../lib/stoppedTurn.js';
 import { anthropic } from '../lib/model.js';
 import { chatTools } from '../tools/index.js';
 
@@ -63,7 +64,14 @@ chatRoutes.post('/chat', async (c) => {
     return c.json({ error: "'messages' is required" }, 400);
   }
 
-  const messages = body.messages;
+  // A turn the user stopped leaves tool calls without results; they are closed
+  // here so the conversation can carry on from where it was interrupted.
+  const messages = closeStoppedToolCalls(body.messages);
+
+  // Stopping the chat closes the response, which aborts this; everything the
+  // turn started — the model, the search sub-agent, its commands and sample
+  // queries — hangs off this signal so it all stops together.
+  const abortSignal = c.req.raw.signal;
 
   // The stream is built here rather than straight from the model so tools can
   // write to it: the schema search reports each step it takes as a data part.
@@ -76,7 +84,7 @@ chatRoutes.post('/chat', async (c) => {
   const stream = createUIMessageStream({
     originalMessages: messages,
     execute: async ({ writer }) => {
-      const tools = chatTools(c, writer);
+      const tools = chatTools(c, writer, abortSignal);
 
       const result = streamText({
         model: anthropic(env.CHAT_MODEL),
@@ -84,6 +92,7 @@ chatRoutes.post('/chat', async (c) => {
         tools,
         stopWhen: stepCountIs(MAX_STEPS),
         messages: await convertToModelMessages(messages, { tools }),
+        abortSignal,
       });
 
       writer.merge(toUIMessageStream({ stream: result.stream, tools }));

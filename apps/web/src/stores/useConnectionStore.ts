@@ -30,7 +30,8 @@ type ConnectionState = {
   activeId: string | null;
   isPickerOpen: boolean;
   isModalOpen: boolean;
-  isSaving: boolean;
+  /** True while the API is testing the draft and saving it if it answers. */
+  isTesting: boolean;
   error: string | null;
   /** Add-connection form; reset whenever the modal closes. */
   draft: ConnectionDraft;
@@ -52,7 +53,7 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
   activeId: null,
   isPickerOpen: false,
   isModalOpen: false,
-  isSaving: false,
+  isTesting: false,
   error: null,
   draft: EMPTY_DRAFT,
 
@@ -100,15 +101,17 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
     }
   },
 
+  // The API tries the connection before it writes it down, so this is one
+  // round trip that either saves a working connection or says what went wrong.
   save: async () => {
-    set({ isSaving: true, error: null });
+    set({ isTesting: true, error: null });
 
     try {
       const connection = await createConnection(get().draft);
 
       set((state) => ({
         connections: [...state.connections, connection],
-        isSaving: false,
+        isTesting: false,
         isModalOpen: false,
         draft: EMPTY_DRAFT,
       }));
@@ -116,7 +119,7 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
       // Switching to it also reloads the explorer against the new target.
       get().setActive(connection.id);
     } catch (cause) {
-      set({ isSaving: false, error: errorMessage(cause, 'Failed to add connection') });
+      set({ isTesting: false, error: errorMessage(cause, 'Failed to add connection') });
     }
   },
 

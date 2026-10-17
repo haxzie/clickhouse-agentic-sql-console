@@ -146,8 +146,17 @@ function splitPipeline(command: string): { parts: string[] } | { error: string }
   return { parts };
 }
 
-/** Runs a validated command inside the schema workspace. */
-export async function runInSandbox(command: string, cwd: string): Promise<BashResult> {
+/**
+ * Runs a validated command inside the schema workspace.
+ *
+ * `abortSignal` kills the child process, so stopping the chat stops the work
+ * rather than leaving a `grep` to finish into nothing.
+ */
+export async function runInSandbox(
+  command: string,
+  cwd: string,
+  abortSignal?: AbortSignal,
+): Promise<BashResult> {
   const rejection = validateCommand(command);
 
   if (rejection) {
@@ -161,10 +170,15 @@ export async function runInSandbox(command: string, cwd: string): Promise<BashRe
       maxBuffer: MAX_BUFFER,
       // No inherited environment: nothing here needs the API process's secrets.
       env: { PATH: '/usr/bin:/bin:/usr/local/bin', LANG: 'C' },
+      signal: abortSignal,
     });
 
     return { output: truncate(stdout || stderr || '(no output)') };
   } catch (error) {
+    if (abortSignal?.aborted) {
+      return { error: 'Stopped.' };
+    }
+
     const failure = error as { stdout?: string; stderr?: string; killed?: boolean; code?: number };
 
     if (failure.killed) {

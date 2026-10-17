@@ -38,7 +38,11 @@ const version = z
  * connection. The editor tools have no `execute`: the SDK forwards them to the
  * browser, which owns the buffer, and streams the result back.
  */
-export function chatTools(c: Context, writer: UIMessageStreamWriter): ToolSet {
+export function chatTools(
+  c: Context,
+  writer: UIMessageStreamWriter,
+  abortSignal?: AbortSignal,
+): ToolSet {
   return {
     search: tool({
       description:
@@ -73,9 +77,12 @@ export function chatTools(c: Context, writer: UIMessageStreamWriter): ToolSet {
         };
 
         try {
-          return await searchSchema(c, use_case, database, onStep);
+          return await searchSchema(c, use_case, database, onStep, abortSignal);
         } catch (error) {
-          return { error: errorMessage(error) };
+          // A stopped turn is not a failure worth reporting back as one.
+          return abortSignal?.aborted
+            ? { error: 'Search stopped.' }
+            : { error: errorMessage(error) };
         }
       },
     }),
@@ -109,7 +116,7 @@ export function chatTools(c: Context, writer: UIMessageStreamWriter): ToolSet {
           .optional()
           .describe(
             'One statement to run, copied verbatim from the editor; it is highlighted and run ' +
-              'on its own. Omit to run the whole buffer (or the user\'s selection). Text that ' +
+              "on its own. Omit to run the whole buffer (or the user's selection). Text that " +
               'is not already in the editor is refused.',
           ),
       }),

@@ -1,3 +1,4 @@
+import { Loader2 } from 'lucide-react';
 import type { FormEvent } from 'react';
 
 import { useConnectionStore } from '../../../stores/useConnectionStore.js';
@@ -7,7 +8,7 @@ export function ConnectionForm() {
   const draft = useConnectionStore((state) => state.draft);
   const updateDraft = useConnectionStore((state) => state.updateDraft);
   const save = useConnectionStore((state) => state.save);
-  const isSaving = useConnectionStore((state) => state.isSaving);
+  const isTesting = useConnectionStore((state) => state.isTesting);
   const error = useConnectionStore((state) => state.error);
   const closeModal = useConnectionStore((state) => state.closeModal);
 
@@ -68,16 +69,18 @@ export function ConnectionForm() {
         <button
           type="button"
           onClick={closeModal}
+          disabled={isTesting}
           className="cursor-pointer rounded px-3 py-1.5 text-neutral-600 hover:bg-neutral-100"
         >
           Cancel
         </button>
         <button
           type="submit"
-          disabled={isSaving}
-          className="cursor-pointer rounded bg-neutral-900 px-3 py-1.5 font-medium text-white hover:bg-neutral-700 disabled:opacity-50"
+          disabled={isTesting}
+          className="flex cursor-pointer items-center gap-1.5 rounded bg-neutral-900 px-3 py-1.5 font-medium text-white hover:bg-neutral-700 disabled:opacity-50"
         >
-          {isSaving ? 'Adding…' : 'Add connection'}
+          {isTesting && <Loader2 size={13} className="animate-spin" />}
+          {isTesting ? 'Testing connection…' : 'Add connection'}
         </button>
       </div>
     </form>

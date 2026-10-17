@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 
+import { probeConnection } from '../lib/clickhouse.js';
 import { addConnection, listConnections, removeConnection } from '../lib/connections.js';
 
 export const connectionRoutes = new Hono();
@@ -27,6 +28,14 @@ connectionRoutes.post('/connections', async (c) => {
 
   if (!parsed.success) {
     return c.json({ error: parsed.error.issues[0]?.message ?? 'Invalid connection' }, 400);
+  }
+
+  // Tested before it is saved, so the picker never offers a connection that
+  // turns out to be unreachable the first time someone runs a query.
+  const probe = await probeConnection(parsed.data);
+
+  if (!probe.ok) {
+    return c.json({ error: `Could not connect: ${probe.error}` }, 400);
   }
 
   return c.json({ connection: addConnection(parsed.data) }, 201);

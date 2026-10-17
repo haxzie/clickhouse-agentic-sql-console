@@ -99,6 +99,12 @@ export async function searchSchema(
   database: string | undefined,
   /** Called as the sub-agent works, so the UI can show its progress. */
   onStep: (step: SearchStep) => void = () => {},
+  /**
+   * Aborted when the user stops the chat. The sub-agent is the longest thing
+   * running behind a stop — a dozen model turns, each with a command or a
+   * query — so it has to hear about it, not just the turn that called it.
+   */
+  abortSignal?: AbortSignal,
 ): Promise<SearchResult | { error: string }> {
   const connectionId = c.req.header('x-connection-id') ?? 'default';
   const workspace = await buildSchemaWorkspace(c, connectionId);
@@ -117,7 +123,7 @@ export async function searchSchema(
     }),
     execute: ({ sql }) => {
       onStep({ tool: 'run_sql', detail: sql });
-      return runSample(c, sql);
+      return runSample(c, sql, abortSignal);
     },
   });
 
@@ -130,7 +136,7 @@ export async function searchSchema(
     }),
     execute: ({ command }) => {
       onStep({ tool: 'bash', detail: command });
-      return runInSandbox(command, workspace);
+      return runInSandbox(command, workspace, abortSignal);
     },
   });
 
@@ -145,6 +151,7 @@ export async function searchSchema(
     tools: { bash, run_sql: runSql },
     stopWhen: stepCountIs(MAX_STEPS),
     output: Output.object({ schema: searchResultSchema }),
+    abortSignal,
   });
 
   return output;

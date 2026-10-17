@@ -18,6 +18,7 @@ import {
   describeSelection,
   withSelectionContext,
 } from '../../../lib/selectionContext.js';
+import { closeStoppedToolCalls } from '../../../lib/stoppedTurn.js';
 import { useEditorStore } from '../../../stores/useEditorStore.js';
 import { useAssistantStore } from '../../../stores/useAssistantStore.js';
 import type { SearchStep } from './SearchProgress.js';
@@ -138,8 +139,22 @@ export function useChatSession() {
     void addToolResult({ tool: pending.toolName, toolCallId, output: rejectedByUser() });
   };
 
-  const reset = () => {
+  /**
+   * Stops the turn and settles what it left behind.
+   *
+   * The request is aborted mid-tool-call, so the parts for those calls would
+   * otherwise spin forever, and an edit waiting on approval would be approving
+   * into a stream that has gone. Marking them stopped also makes the history
+   * sendable: the next message carries tool calls that have an outcome.
+   */
+  const stopTurn = () => {
     stop();
+    useAssistantStore.getState().clearPendingEdits();
+    setMessages((current) => current.map(closeStoppedToolCalls));
+  };
+
+  const reset = () => {
+    stopTurn();
     setMessages([]);
     setInput('');
   };
@@ -152,7 +167,7 @@ export function useChatSession() {
     setInput,
     submit,
     isBusy,
-    stop,
+    stop: stopTurn,
     reset,
     approveEdit,
     rejectEdit,

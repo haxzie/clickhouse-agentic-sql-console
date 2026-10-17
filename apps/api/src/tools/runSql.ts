@@ -57,7 +57,11 @@ export function prepareSample(sql: string): { query: string } | { error: string 
  * even if the statement check above is fooled — while still permitting the
  * per-query settings this sends.
  */
-export async function runSample(c: Context, sql: string): Promise<SampleResult> {
+export async function runSample(
+  c: Context,
+  sql: string,
+  abortSignal?: AbortSignal,
+): Promise<SampleResult> {
   const prepared = prepareSample(sql);
 
   if ('error' in prepared) {
@@ -65,10 +69,13 @@ export async function runSample(c: Context, sql: string): Promise<SampleResult> 
   }
 
   try {
-    const text = await queryText(c, prepared.query, 'TabSeparatedWithNames', {
-      readonly: '2',
-      max_execution_time: MAX_EXECUTION_SECONDS,
-    });
+    const text = await queryText(
+      c,
+      prepared.query,
+      'TabSeparatedWithNames',
+      { readonly: '2', max_execution_time: MAX_EXECUTION_SECONDS },
+      abortSignal,
+    );
 
     const trimmed = text.trim();
 

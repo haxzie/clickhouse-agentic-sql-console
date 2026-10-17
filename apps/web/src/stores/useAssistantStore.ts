@@ -36,6 +36,8 @@ type AssistantState = {
   setEditApproval: (editApproval: EditApproval) => void;
   addPendingEdit: (edit: PendingEdit) => void;
   clearPendingEdit: (toolCallId: string) => void;
+  /** Drops every held edit at once, for a turn the user stopped. */
+  clearPendingEdits: () => void;
   recordAppliedEdit: (toolCallId: string, preview: EditPreview) => void;
   startNewChat: () => void;
 };
@@ -60,6 +62,8 @@ export const useAssistantStore = create<AssistantState>((set) => ({
       const { [toolCallId]: _removed, ...rest } = state.pendingEdits;
       return { pendingEdits: rest };
     }),
+
+  clearPendingEdits: () => set({ pendingEdits: {} }),
 
   recordAppliedEdit: (toolCallId, preview) =>
     set((state) => ({ appliedEdits: { ...state.appliedEdits, [toolCallId]: preview } })),
