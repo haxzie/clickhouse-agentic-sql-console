@@ -67,17 +67,17 @@ The API validates its environment at startup (`apps/api/src/env.ts`, zod). A
 missing or malformed variable stops the process with a message naming it,
 rather than failing later as `NaN` or an empty key.
 
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `ANTHROPIC_API_KEY` | **required** | The assistant's key; create one at https://console.anthropic.com/settings/keys |
-| `CLICKHOUSE_URL` | `http://localhost:8123` | ClickHouse HTTP endpoint |
-| `PORT` | `8080` | API port |
-| `WEB_ORIGIN` | `http://localhost:5173` | Allowed CORS origin |
-| `DATABASE_PATH` | `apps/api/data/app.db` | SQLite file holding saved connections |
-| `ENCRYPTION_KEY` | insecure dev fallback | Key used to encrypt connection passwords at rest; **required** when `NODE_ENV=production` |
-| `CHAT_MODEL` | `claude-opus-5-5` | Model used by the assistant |
-| `SEARCH_MODEL` | `claude-haiku-4-5-20251001` | Model used by the schema-search sub-agent and `POST /describe` |
-| `NODE_ENV` | `development` | `production` tightens the two requirements above |
+| Variable            | Default                     | Purpose                                                                                   |
+| ------------------- | --------------------------- | ----------------------------------------------------------------------------------------- |
+| `ANTHROPIC_API_KEY` | **required**                | The assistant's key; create one at https://console.anthropic.com/settings/keys            |
+| `CLICKHOUSE_URL`    | `http://localhost:8123`     | ClickHouse HTTP endpoint                                                                  |
+| `PORT`              | `8080`                      | API port                                                                                  |
+| `WEB_ORIGIN`        | `http://localhost:5173`     | Allowed CORS origin                                                                       |
+| `DATABASE_PATH`     | `apps/api/data/app.db`      | SQLite file holding saved connections                                                     |
+| `ENCRYPTION_KEY`    | insecure dev fallback       | Key used to encrypt connection passwords at rest; **required** when `NODE_ENV=production` |
+| `CHAT_MODEL`        | `claude-opus-5-5`           | Model used by the assistant                                                               |
+| `SEARCH_MODEL`      | `claude-haiku-4-5-20251001` | Model used by the schema-search sub-agent and `POST /describe`                            |
+| `NODE_ENV`          | `development`               | `production` tightens the two requirements above                                          |
 
 `CLICKHOUSE_URL` seeds the first connection on an empty database; after that,
 connections are managed in the UI and stored in SQLite (Drizzle ORM). Connection
@@ -117,16 +117,16 @@ message fail.
 
 ### Tools
 
-| Tool | Runs on | What it does |
-| --- | --- | --- |
-| `search` | API | Finds the tables and columns for a use case. A sub-agent with its own tools; see below. |
-| `get_editor_state` | Browser | The buffer with line numbers, the cursor, the selection, and a `version` token. |
-| `get_last_error` | Browser | The last failed run from the console, with the statement behind it. |
-| `run_query` | Browser | Runs what is in the editor and returns columns, row counts, timings and a sample. |
-| `str_replace` | Browser | Replaces an exact, unique snippet, leaving surrounding formatting alone. |
-| `replace_selection` | Browser | Replaces the highlighted text. |
-| `insert_at_cursor` | Browser | Inserts at the cursor. |
-| `set_query` | Browser | Rewrites the whole buffer. |
+| Tool                | Runs on | What it does                                                                            |
+| ------------------- | ------- | --------------------------------------------------------------------------------------- |
+| `search`            | API     | Finds the tables and columns for a use case. A sub-agent with its own tools; see below. |
+| `get_editor_state`  | Browser | The buffer with line numbers, the cursor, the selection, and a `version` token.         |
+| `get_last_error`    | Browser | The last failed run from the console, with the statement behind it.                     |
+| `run_query`         | Browser | Runs what is in the editor and returns columns, row counts, timings and a sample.       |
+| `str_replace`       | Browser | Replaces an exact, unique snippet, leaving surrounding formatting alone.                |
+| `replace_selection` | Browser | Replaces the highlighted text.                                                          |
+| `insert_at_cursor`  | Browser | Inserts at the cursor.                                                                  |
+| `set_query`         | Browser | Rewrites the whole buffer.                                                              |
 
 Only `search` has a server-side `execute`; it needs the ClickHouse connection.
 The rest are declared on the server without one, so the AI SDK forwards the
@@ -246,3 +246,42 @@ Individually:
 `pnpm test`
 
 Other workspace scripts: `pnpm typecheck`, `pnpm build`.
+
+## Agentic coding tool
+
+This was built with **Claude Code** (Anthropic), using Opus. It wrote most of
+the code under direction, and every decision here is one I can walk through:
+the version-token edit protocol, the sandboxed search sub-agent, the
+run-from-the-editor-only rule, and the trade-offs each of them makes.
+
+## Next steps
+
+What I would pick up next, in the order I would do it:
+
+1. **Error states for the chat agent.** Failures currently surface as one red
+   line under the transcript. A dropped stream, a 429, an overloaded model and
+   a tool that threw all deserve different treatment — a retry on the turn that
+   failed, rather than asking the user to resend.
+
+2. **Memory for the search sub-agent.** Each search starts cold: it re-greps
+   ground it covered a minute ago, and the plan it followed is thrown away with
+   the tool result. Keeping its past plans per session — attachable to the
+   next search's context — would make repeat questions about the same schema
+   cheaper and more consistent, and would let the main agent cite what was
+   already established instead of asking again.
+
+3. **Virtualization in the tree renderer.** The explorer renders every database
+   and table node it is given. Northwind has eight tables; a real ClickHouse
+   cluster has thousands, and the tree should render only what is on screen.
+
+4. **Compaction of the chat.** Every turn resends the whole conversation,
+   including tool outputs that are large by nature — schema search results,
+   sampled rows, the editor buffer at several versions. Summarising older turns
+   would keep long sessions inside the context window and cut the cost of each
+   message.
+
+5. **RAG over the schema.** Grep finds a column when the name or its comment
+   shares a word with the question. Embedding table and column names, types and
+   comments and retrieving by similarity would catch the cases it misses —
+   `ship_country` for "where did we sell", `freight` for "delivery cost" — and
+   would scale to schemas too wide to walk with a shell.
