@@ -94,17 +94,28 @@ automatically on API start.
 
 The assistant streams from `POST /chat` through the AI SDK, using Anthropic's
 Opus model (`claude-opus-5-5`) for the chat and Haiku for the schema-search
-sub-agent. To enable it:
+sub-agent.
+
+Create a key at <https://console.anthropic.com/settings/keys>, then pass it
+inline when starting the app:
+
+```bash
+ANTHROPIC_API_KEY=sk-ant-... pnpm start
+```
+
+That is the whole setup — no file to create. The same works for `pnpm dev`.
+
+To avoid repeating it, put the key in a file instead:
 
 ```bash
 cp apps/api/.env.example apps/api/.env
 # then edit apps/api/.env and set ANTHROPIC_API_KEY=sk-ant-...
 ```
 
-Create a key at <https://console.anthropic.com/settings/keys>. The API loads
-`apps/api/.env` on start, whether you launch it from the repo root or from
-`apps/api`; a real environment variable of the same name takes precedence, so
-`ANTHROPIC_API_KEY=... pnpm dev` works too. `.env` is gitignored.
+The API loads `apps/api/.env` on start, whether you launch it from the repo
+root or from `apps/api`. A variable set in the environment wins over the file,
+so the inline form above overrides a key already saved there. `.env` is
+gitignored.
 
 The key is required: the API validates its environment at startup and refuses
 to start without one, naming the variable, rather than letting the first chat
@@ -224,10 +235,12 @@ came back.
 ## Start the application
 
 ```
-pnpm start
+ANTHROPIC_API_KEY=sk-ant-... pnpm start
 ```
 
-Builds the console and serves everything from the API on
+The key can come from `apps/api/.env` instead, in which case `pnpm start` is
+enough; see [Anthropic API key](#anthropic-api-key). Either way this builds the
+console and serves everything from the API on
 <http://localhost:8080>: `/` is the React app, `/api/*` is the API, and any
 other path falls back to the app so deep links work. One process, one origin,
 no CORS.
