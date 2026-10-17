@@ -1,19 +1,33 @@
 import { create } from 'zustand';
 
 import { runQuery } from '../lib/api.js';
+import { errorMessage } from '../lib/errors.js';
 import type { QueryHistoryEntry, QueryRow } from '../types/index.js';
 
+/**
+ * Query execution and its history.
+ *
+ * `rows`/`error`/`durationMs` describe the most recent statement, and
+ * `durationMs` doubles as the "a query has completed" flag that the results
+ * panel uses to tell an empty result apart from a fresh session.
+ */
 type QueryState = {
   rows: QueryRow[];
   error: string | null;
   durationMs: number | null;
   isRunning: boolean;
+  /** Newest first; one entry per statement, not per Run. */
   history: QueryHistoryEntry[];
-  /** Splits on `;` so the editor can run several statements in one go. */
   execute: (sql: string) => Promise<void>;
   clearHistory: () => void;
 };
 
+/**
+ * Splits editor contents into runnable statements.
+ *
+ * Naive on purpose: a `;` inside a string literal or comment would split
+ * wrongly. Swap in a real parser if that becomes a problem.
+ */
 export function splitStatements(sql: string): string[] {
   return sql
     .split(';')
@@ -31,13 +45,15 @@ export const useQueryStore = create<QueryState>((set) => ({
   execute: async (sql) => {
     const statements = splitStatements(sql);
 
+    // Callers disable their controls when there is nothing to run.
     if (statements.length === 0) {
-      set({ error: "'query' is required", rows: [], durationMs: null });
       return;
     }
 
     set({ isRunning: true, error: null });
 
+    // Statements run in order and stop at the first failure; only the last
+    // result set stays on screen, while every statement is recorded.
     for (const statement of statements) {
       const entry: QueryHistoryEntry = {
         id: crypto.randomUUID(),
@@ -51,27 +67,24 @@ export const useQueryStore = create<QueryState>((set) => ({
       try {
         const { rows, durationMs } = await runQuery(statement);
 
-        // Only the last statement's result set stays on screen.
         set((state) => ({
           rows,
           durationMs,
           error: null,
-          history: state.history.map((item) =>
-            item.id === entry.id
-              ? { ...item, status: 'success', durationMs, rowCount: rows.length }
-              : item,
-          ),
+          history: updateEntry(state.history, entry.id, {
+            status: 'success',
+            durationMs,
+            rowCount: rows.length,
+          }),
         }));
       } catch (cause) {
-        const message = cause instanceof Error ? cause.message : 'Query failed';
+        const message = errorMessage(cause, 'Query failed');
 
         set((state) => ({
           rows: [],
           durationMs: null,
           error: message,
-          history: state.history.map((item) =>
-            item.id === entry.id ? { ...item, status: 'error', error: message } : item,
-          ),
+          history: updateEntry(state.history, entry.id, { status: 'error', error: message }),
         }));
 
         break;
@@ -83,3 +96,11 @@ export const useQueryStore = create<QueryState>((set) => ({
 
   clearHistory: () => set({ history: [] }),
 }));
+
+function updateEntry(
+  history: QueryHistoryEntry[],
+  id: string,
+  patch: Partial<QueryHistoryEntry>,
+): QueryHistoryEntry[] {
+  return history.map((entry) => (entry.id === id ? { ...entry, ...patch } : entry));
+}

@@ -1,4 +1,5 @@
 import { sql } from '@codemirror/lang-sql';
+import type { EditorState as EditorStateType } from '@codemirror/state';
 import CodeMirror from '@uiw/react-codemirror';
 import { useCallback } from 'react';
 
@@ -11,6 +12,11 @@ export function SqlEditor() {
   const value = useEditorStore((state) => state.sql);
   const setSql = useEditorStore((state) => state.setSql);
   const execute = useQueryStore((state) => state.execute);
+
+  const onUpdate = useCallback((viewUpdate: { state: EditorStateType }) => {
+    const { from, to } = viewUpdate.state.selection.main;
+    useEditorStore.getState().setSelection(from, to);
+  }, []);
 
   const onKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>) => {
@@ -29,10 +35,11 @@ export function SqlEditor() {
   );
 
   return (
-    <div onKeyDown={onKeyDown} className="h-full">
+    <div onKeyDown={onKeyDown} data-sql-editor className="h-full">
       <CodeMirror
         value={value}
         onChange={setSql}
+        onUpdate={onUpdate}
         extensions={extensions}
         theme="light"
         height="100%"

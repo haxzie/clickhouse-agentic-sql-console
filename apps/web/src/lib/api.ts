@@ -66,3 +66,25 @@ export async function createConnection(draft: ConnectionDraft): Promise<Connecti
 export async function deleteConnection(id: string): Promise<void> {
   await request(`/connections/${encodeURIComponent(id)}`, { method: 'DELETE' });
 }
+
+export type SqlValidation =
+  | { valid: true }
+  | { valid: false; statement: string; error: string }
+  /** The check itself could not run; the edit still happened. */
+  | { valid: null; error: string };
+
+export async function validateStatements(statements: string[]): Promise<SqlValidation> {
+  if (statements.length === 0) {
+    return { valid: true };
+  }
+
+  try {
+    return await request<SqlValidation>('/validate', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ statements }),
+    });
+  } catch (cause) {
+    return { valid: null, error: cause instanceof Error ? cause.message : 'Validation failed' };
+  }
+}

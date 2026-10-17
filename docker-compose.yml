@@ -18,6 +18,9 @@ services:
       - clickhouse_data:/var/log/clickhouse-server/
       - ./docker/config.xml:/etc/clickhouse-server/config.d/config.xml
       - ./docker/users.xml:/etc/clickhouse-server/users.d/users.xml
+      # Seed data: the init scripts run once, on an empty data volume.
+      - ./docker/initdb:/docker-entrypoint-initdb.d:ro
+      - ./docker/seed:/seed-src:ro
     networks:
       - clickhouse-demo
 

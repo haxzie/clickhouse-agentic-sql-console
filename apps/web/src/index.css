@@ -1,6 +1,9 @@
 @import '@fontsource-variable/inter';
 @import 'tailwindcss';
 
+/* Streamdown renders assistant markdown; Tailwind must see its utilities. */
+@source "../node_modules/streamdown/dist/*.js";
+
 @theme {
   --font-sans: 'Inter Variable', ui-sans-serif, system-ui, sans-serif;
   --color-brand: #faff69;
@@ -33,13 +36,12 @@ body {
 
 /* Keep inner scrollers from chaining their overscroll to the page. */
 .cm-scroller,
-.rdt_Table,
 [data-scroll-pane] {
   overscroll-behavior: contain;
 }
 
-/* CodeMirror fills its pane and inherits the standard size. */
-.cm-editor {
+/* The query editor fills its pane; chat code blocks size to their content. */
+[data-sql-editor] .cm-editor {
   height: 100%;
   font-size: var(--text-app);
 }
@@ -49,35 +51,73 @@ body {
 }
 
 /*
- * react-data-table wraps its pagination in a tight div, which would be the
- * sticky containing block and leave no room to travel. Collapsing that wrapper
- * lets the bar stick to the bottom of the scrolling results area.
+ * rangi token colours for chat code blocks, matched to the CodeMirror light
+ * theme used by the query editor so both panes read the same.
  */
-div:has(> [data-pagination]) {
-  display: contents;
+.chat-markdown .shj-kwd,
+.chat-markdown .shj-section {
+  color: #708;
+}
+
+.chat-markdown .shj-str,
+.chat-markdown .shj-esc {
+  color: #a11;
+}
+
+.chat-markdown .shj-num,
+.chat-markdown .shj-bool {
+  color: #164;
+}
+
+.chat-markdown .shj-type,
+.chat-markdown .shj-class {
+  color: #085;
+}
+
+.chat-markdown .shj-func,
+.chat-markdown .shj-var {
+  color: #00c;
+}
+
+.chat-markdown .shj-cmnt {
+  color: #940;
+  font-style: italic;
+}
+
+.chat-markdown .shj-oper,
+.chat-markdown .shj-bracket {
+  color: var(--color-neutral-500);
 }
 
 /*
- * The table owns the full height of the results pane: its row area scrolls on
- * its own, which keeps the pagination bar on the floor for short results and
- * lets the column headers stick to the top for long ones.
+ * Waiting indicator: the assistant mark breathes in, out, then turns over.
+ * One keyframe track so the rotation reads as the end of a breath rather than
+ * a separate spin.
  */
-[data-result-table] > div {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
+@keyframes assistant-breathe {
+  0% {
+    transform: scale(1) rotate(0deg);
+  }
+
+  30% {
+    transform: scale(0.8) rotate(0deg);
+  }
+
+  60% {
+    transform: scale(1.08) rotate(0deg);
+  }
+
+  100% {
+    transform: scale(1) rotate(180deg);
+  }
 }
 
-/* The row area (everything in the table root except the pagination bar). */
-[data-result-table] > div > div:not(:has(> [data-pagination])) {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  overscroll-behavior: contain;
+.animate-assistant-breathe {
+  animation: assistant-breathe 1.8s ease-in-out infinite;
 }
 
-[data-result-table] .rdt_TableHead {
-  position: sticky;
-  top: 0;
-  z-index: 2;
+@media (prefers-reduced-motion: reduce) {
+  .animate-assistant-breathe {
+    animation: none;
+  }
 }

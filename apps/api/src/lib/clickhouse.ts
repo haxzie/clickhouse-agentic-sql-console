@@ -1,4 +1,4 @@
-import { createClient, type ClickHouseClient } from '@clickhouse/client';
+import { createClient, type ClickHouseClient, type ClickHouseSettings } from '@clickhouse/client';
 import type { Context } from 'hono';
 
 import { getConnection } from './connections.js';
@@ -43,6 +43,22 @@ export async function queryRows<T>(
   });
 
   return resultSet.json<T>();
+}
+
+/** Raw text result, for tool output that is read rather than parsed. */
+export async function queryText(
+  c: Context,
+  query: string,
+  format: 'TabSeparatedWithNames',
+  clickhouseSettings?: ClickHouseSettings,
+): Promise<string> {
+  const resultSet = await clientFor(c).query({
+    query,
+    format,
+    clickhouse_settings: clickhouseSettings,
+  });
+
+  return resultSet.text();
 }
 
 export function errorMessage(error: unknown): string {

@@ -17,11 +17,7 @@ export function ResultViewer() {
     <section aria-label="Query results" className="flex min-h-0 flex-1 flex-col">
       <ResultStatusBar />
 
-      <div
-        data-scroll-pane
-        data-result-pane
-        className="min-h-0 flex-1 overflow-auto overscroll-contain"
-      >
+      <div className="flex min-h-0 flex-1 flex-col">
         {error ? (
           <div className="flex items-start justify-between gap-3 px-3 py-3">
             <pre role="alert" className="min-w-0 flex-1 font-mono whitespace-pre-wrap text-red-600">
@@ -30,9 +26,7 @@ export function ResultViewer() {
             <FixWithAiButton error={error} />
           </div>
         ) : rows.length > 0 ? (
-          <div data-result-table className="h-full">
-            <ResultTable rows={rows} />
-          </div>
+          <ResultTable rows={rows} />
         ) : hasCompletedRun ? (
           <EmptyState message="Query executed. 0 rows returned." />
         ) : (

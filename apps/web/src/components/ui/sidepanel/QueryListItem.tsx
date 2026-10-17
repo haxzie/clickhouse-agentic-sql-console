@@ -1,3 +1,4 @@
+import { rowCountLabel } from '../../../lib/format.js';
 import { useEditorStore } from '../../../stores/useEditorStore.js';
 import type { QueryHistoryEntry } from '../../../types/index.js';
 
@@ -19,7 +20,7 @@ export function QueryListItem({ entry }: QueryListItemProps) {
       ? 'failed'
       : entry.status === 'running'
         ? 'running…'
-        : `${entry.rowCount ?? 0} rows · ${entry.durationMs ?? 0} ms`;
+        : `${rowCountLabel(entry.rowCount ?? 0)} · ${entry.durationMs ?? 0} ms`;
 
   return (
     <li>

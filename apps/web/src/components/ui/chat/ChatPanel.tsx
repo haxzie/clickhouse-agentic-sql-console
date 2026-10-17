@@ -1,13 +1,14 @@
 import { AiSparkleIcon } from '../common/AiSparkleIcon.js';
 import { PanelHeader } from '../common/PanelHeader.js';
 import { PanelHeading } from '../common/PanelHeading.js';
+import { ChatComposer } from './ChatComposer.js';
+import { ChatMessageList } from './ChatMessageList.js';
 import { NewChatButton } from './NewChatButton.js';
+import { useChatSession } from './useChatSession.js';
 
-/**
- * Placeholder shell for the AI assistant. The chat UI itself is still
- * pending a spec, so only the panel chrome lives here for now.
- */
 export function ChatPanel() {
+  const chat = useChatSession();
+
   return (
     <aside
       aria-label="AI assistant"
@@ -19,12 +20,24 @@ export function ChatPanel() {
           Assistant
         </PanelHeading>
 
-        <NewChatButton />
+        <NewChatButton onNewChat={chat.reset} />
       </PanelHeader>
 
-      <div className="flex flex-1 items-center justify-center px-6">
-        <p className="text-center text-neutral-400">Chat UI pending.</p>
-      </div>
+      <ChatMessageList
+        messages={chat.messages}
+        status={chat.status}
+        error={chat.error}
+        onApprove={chat.approveEdit}
+        onReject={chat.rejectEdit}
+      />
+
+      <ChatComposer
+        input={chat.input}
+        onInputChange={chat.setInput}
+        onSubmit={chat.submit}
+        isBusy={chat.isBusy}
+        onStop={chat.stop}
+      />
     </aside>
   );
 }

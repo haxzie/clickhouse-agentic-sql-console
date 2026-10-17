@@ -1,21 +1,26 @@
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
-import type { PaginationComponentProps } from 'react-data-table-component';
-
+import { rowCountLabel } from '../../../lib/format.js';
 import { DownloadResultsButton } from './DownloadResultsButton.js';
+import { WrapTextToggle } from './WrapTextToggle.js';
 
 const ROWS_PER_PAGE_OPTIONS = [10, 25, 50, 100];
 
-/**
- * Replaces react-data-table's pagination so the row count can sit on the left
- * and the controls match the rest of the console.
- */
+/** Row count and actions on the left, paging controls on the right. */
+type ResultPaginationProps = {
+  rowCount: number;
+  rowsPerPage: number;
+  currentPage: number;
+  onChangePage: (page: number) => void;
+  onChangeRowsPerPage: (rowsPerPage: number) => void;
+};
+
 export function ResultPagination({
   rowsPerPage,
   rowCount,
   currentPage,
   onChangePage,
   onChangeRowsPerPage,
-}: PaginationComponentProps) {
+}: ResultPaginationProps) {
   const lastPage = Math.max(1, Math.ceil(rowCount / rowsPerPage));
   const firstRow = rowCount === 0 ? 0 : (currentPage - 1) * rowsPerPage + 1;
   const lastRow = Math.min(currentPage * rowsPerPage, rowCount);
@@ -30,14 +35,16 @@ export function ResultPagination({
       className="text-sub flex h-9 shrink-0 items-center justify-between border-t border-neutral-200 bg-white px-3 text-neutral-500"
     >
       <div className="flex items-center gap-3">
-        <DownloadResultsButton />
+        <span>{rowCountLabel(rowCount)}</span>
 
-        {/* Short rule separating the action from the row count. */}
+        {/* Short rules separating the count from the actions beside it. */}
         <span aria-hidden className="h-4 w-px bg-neutral-200" />
 
-        <span>
-          {rowCount} {rowCount === 1 ? 'row' : 'rows'}
-        </span>
+        <DownloadResultsButton />
+
+        <span aria-hidden className="h-4 w-px bg-neutral-200" />
+
+        <WrapTextToggle />
       </div>
 
       <div className="flex items-center gap-3">
@@ -45,7 +52,7 @@ export function ResultPagination({
           Rows per page
           <select
             value={rowsPerPage}
-            onChange={(event) => onChangeRowsPerPage(Number(event.target.value), currentPage)}
+            onChange={(event) => onChangeRowsPerPage(Number(event.target.value))}
             className="cursor-pointer rounded border border-neutral-200 px-1 py-0.5 text-neutral-700"
           >
             {ROWS_PER_PAGE_OPTIONS.map((option) => (
@@ -61,31 +68,27 @@ export function ResultPagination({
         </span>
 
         <span className="flex items-center gap-0.5">
-          <PageButton
-            label="First page"
-            disabled={isFirstPage}
-            onClick={() => onChangePage(1, rowCount)}
-          >
+          <PageButton label="First page" disabled={isFirstPage} onClick={() => onChangePage(1)}>
             <ChevronsLeft size={14} />
           </PageButton>
           <PageButton
             label="Previous page"
             disabled={isFirstPage}
-            onClick={() => onChangePage(currentPage - 1, rowCount)}
+            onClick={() => onChangePage(currentPage - 1)}
           >
             <ChevronLeft size={14} />
           </PageButton>
           <PageButton
             label="Next page"
             disabled={isLastPage}
-            onClick={() => onChangePage(currentPage + 1, rowCount)}
+            onClick={() => onChangePage(currentPage + 1)}
           >
             <ChevronRight size={14} />
           </PageButton>
           <PageButton
             label="Last page"
             disabled={isLastPage}
-            onClick={() => onChangePage(lastPage, rowCount)}
+            onClick={() => onChangePage(lastPage)}
           >
             <ChevronsRight size={14} />
           </PageButton>

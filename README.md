@@ -41,6 +41,26 @@ nvm use
 pnpm install
 ```
 
+### Seed data
+
+`docker compose up` loads the **Northwind** sales dataset into a `northwind`
+database on first start: 8 related tables (orders, order_details, products,
+categories, customers, suppliers, employees, shippers) covering 1996-1998, with
+830 orders and 2,155 order lines. It is small, famously relational and gives the
+assistant real joins to find.
+
+The CSVs live in `docker/seed` (~200 KB, committed so setup works offline);
+`scripts/fetch-seed.sh` re-downloads them from the upstream mirror. The schema
+in `docker/initdb` carries column comments — the assistant's schema search reads
+them, so `discount` explains that revenue is
+`unit_price * quantity * (1 - discount)`.
+
+Seeding runs only on an empty data volume. To reload after changing the schema:
+
+```
+docker compose down -v && docker compose up -d
+```
+
 ### Environment variables
 
 The API reads these (all optional, defaults shown):
@@ -52,6 +72,9 @@ The API reads these (all optional, defaults shown):
 | `WEB_ORIGIN` | `http://localhost:5173` | Allowed CORS origin |
 | `DATABASE_PATH` | `apps/api/data/app.db` | SQLite file holding saved connections |
 | `ENCRYPTION_KEY` | insecure dev fallback | Key used to encrypt connection passwords at rest |
+| `ANTHROPIC_API_KEY` | _unset_ | **Required for the assistant**; create one at https://console.anthropic.com/settings/keys |
+| `CHAT_MODEL` | `claude-opus-5-5` | Model used by the assistant |
+| `SEARCH_MODEL` | `claude-haiku-4-5-20251001` | Model used by the schema-search sub-agent |
 
 `CLICKHOUSE_URL` seeds the first connection on an empty database; after that,
 connections are managed in the UI and stored in SQLite (Drizzle ORM). Connection
@@ -64,10 +87,61 @@ Schema changes: edit `apps/api/src/db/schema.ts`, then run
 `pnpm --filter @clickhouse-ai/api db:generate`. Migrations are applied
 automatically on API start.
 
-The AI SDK providers are installed but not wired to a route yet. When they are,
-an LLM key will be needed — `OPENAI_API_KEY` (from https://platform.openai.com/api-keys)
-or `ANTHROPIC_API_KEY` (from https://console.anthropic.com/settings/keys) — set in
-`apps/api/.env` or exported in the shell.
+### Anthropic API key
+
+The assistant streams from `POST /chat` through the AI SDK, using Anthropic's
+Opus model (`claude-opus-5-5`) for the chat and Haiku for the schema-search
+sub-agent. To enable it:
+
+```bash
+cp apps/api/.env.example apps/api/.env
+# then edit apps/api/.env and set ANTHROPIC_API_KEY=sk-ant-...
+```
+
+Create a key at <https://console.anthropic.com/settings/keys>. The API loads
+`apps/api/.env` on start, whether you launch it from the repo root or from
+`apps/api`; a real environment variable of the same name takes precedence, so
+`ANTHROPIC_API_KEY=... pnpm dev` works too. `.env` is gitignored.
+
+Without a key the console still works — browse the schema, run queries, read
+results — and only the assistant returns a 503 saying the key is missing. The
+API also logs a warning at startup.
+
+`@ai-sdk/openai` is installed if you would rather swap the provider in
+`apps/api/src/routes/chat.ts` and `apps/api/src/lib/model.ts`.
+
+The assistant has five tools. `search` runs on the API as a sub-agent with a
+single tool of its own: `bash`. The connection's schema is written to a
+workspace of line-oriented files (`columns.tsv`, `tables.tsv`,
+`ddl/<db>/<table>.sql`, cached for five minutes), and the sub-agent greps and
+reads its way around before reporting the tables and columns that serve the use
+case, with an instruction for the main agent. The shell is restricted to an
+allowlist of read-only commands joined by `|`; redirection, command
+substitution, sequencing and unknown binaries are rejected, and it runs with a
+timeout, an output cap and no inherited environment.
+
+The sub-agent also has `run_sql` for sampling the data itself — distinct values,
+date ranges, how often a column is empty — so it can confirm what a column holds
+rather than trusting its name. Statements must be a single read; results are
+capped by wrapping the query in an outer `LIMIT 50` (ClickHouse's
+`max_result_rows` only breaks on block boundaries and does not cap reliably),
+with a five-second execution limit and `readonly = 2` so the server refuses
+writes even if the statement check is fooled. The other four —
+`get_editor_state`, `str_replace`, `replace_selection`, `insert_at_cursor` and
+`set_query` — are declared on the server but executed in the browser, which
+owns the editor buffer. Each edit carries the `version` token from the last
+`get_editor_state`; if the user typed in the meantime the edit is rejected and
+the model is handed the fresh buffer to retry against, so typing is never
+clobbered.
+
+Every applied edit is then validated: the resulting statements are checked with
+`EXPLAIN SYNTAX` on the connected server (`POST /validate`), which catches
+syntax errors, unknown tables and unknown columns without running anything. The
+tool result carries a `validation` field, so a broken buffer is reported in the
+step that broke it rather than when the user next hits Run. A sixth tool,
+`get_last_error`, returns the last failed run from the console with the
+statement behind it, for when the user says "fix the error" without quoting
+it.
 
 ## Start the application
 

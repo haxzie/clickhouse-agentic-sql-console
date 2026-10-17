@@ -1,13 +1,14 @@
 import { SquarePen } from 'lucide-react';
 
-import { useAssistantStore } from '../../../stores/useAssistantStore.js';
 import { IconButton } from '../common/IconButton.js';
 
-export function NewChatButton() {
-  const startNewChat = useAssistantStore((state) => state.startNewChat);
+type NewChatButtonProps = {
+  onNewChat: () => void;
+};
 
+export function NewChatButton({ onNewChat }: NewChatButtonProps) {
   return (
-    <IconButton label="New chat" onClick={startNewChat}>
+    <IconButton label="New chat" onClick={onNewChat}>
       <SquarePen size={15} />
     </IconButton>
   );

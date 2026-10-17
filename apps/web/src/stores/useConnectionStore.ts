@@ -6,10 +6,11 @@ import {
   fetchConnections,
   setActiveConnectionId,
 } from '../lib/api.js';
+import { errorMessage } from '../lib/errors.js';
 import type { Connection, ConnectionDraft } from '../types/index.js';
 import { useSchemaStore } from './useSchemaStore.js';
 
-export const EMPTY_DRAFT: ConnectionDraft = {
+const EMPTY_DRAFT: ConnectionDraft = {
   name: '',
   url: 'http://localhost:8123',
   username: '',
@@ -17,6 +18,13 @@ export const EMPTY_DRAFT: ConnectionDraft = {
   database: 'default',
 };
 
+/**
+ * Saved ClickHouse connections and the picker UI around them.
+ *
+ * The API owns the connections (and their encrypted passwords); this store
+ * mirrors the list, tracks which one requests target, and holds the
+ * add-connection form state.
+ */
 type ConnectionState = {
   connections: Connection[];
   activeId: string | null;
@@ -24,6 +32,7 @@ type ConnectionState = {
   isModalOpen: boolean;
   isSaving: boolean;
   error: string | null;
+  /** Add-connection form; reset whenever the modal closes. */
   draft: ConnectionDraft;
 
   loadConnections: () => Promise<void>;
@@ -52,10 +61,11 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
       const connections = await fetchConnections();
       const activeId = get().activeId ?? connections[0]?.id ?? null;
 
+      // The API client stamps this onto every subsequent request.
       setActiveConnectionId(activeId);
       set({ connections, activeId, error: null });
     } catch (cause) {
-      set({ error: cause instanceof Error ? cause.message : 'Failed to load connections' });
+      set({ error: errorMessage(cause, 'Failed to load connections') });
     }
   },
 
@@ -74,16 +84,19 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
 
   remove: async (id) => {
     try {
+      // The API refuses to delete the last connection and reports why.
       await deleteConnection(id);
 
       const connections = get().connections.filter((connection) => connection.id !== id);
       set({ connections, error: null });
 
-      if (get().activeId === id) {
-        get().setActive(connections[0]?.id ?? '');
+      const next = connections[0];
+
+      if (get().activeId === id && next) {
+        get().setActive(next.id);
       }
     } catch (cause) {
-      set({ error: cause instanceof Error ? cause.message : 'Failed to remove connection' });
+      set({ error: errorMessage(cause, 'Failed to remove connection') });
     }
   },
 
@@ -100,12 +113,10 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
         draft: EMPTY_DRAFT,
       }));
 
+      // Switching to it also reloads the explorer against the new target.
       get().setActive(connection.id);
     } catch (cause) {
-      set({
-        isSaving: false,
-        error: cause instanceof Error ? cause.message : 'Failed to add connection',
-      });
+      set({ isSaving: false, error: errorMessage(cause, 'Failed to add connection') });
     }
   },
 
