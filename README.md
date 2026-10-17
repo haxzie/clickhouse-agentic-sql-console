@@ -29,17 +29,43 @@ apps/api   Hono API server (ClickHouse client + AI SDK)
 apps/web   React + Vite + TypeScript SQL console
 ```
 
-## Setup
+## Quick start
 
-- Requires docker and docker compose
-- Requires Node 20+
-- Requires pnpm 10+ (`corepack enable pnpm`)
+Requires docker and docker compose, Node 20+, and pnpm 10+
+(`corepack enable pnpm`). You also need an Anthropic API key, from
+<https://console.anthropic.com/settings/keys>.
 
-```
+```bash
+# 1. ClickHouse, with the Northwind dataset loaded on first start
 docker compose up -d
+
+# 2. Dependencies
 nvm use
 pnpm install
+
+# 3. Build and run the console, with your key
+ANTHROPIC_API_KEY=sk-ant-... pnpm start
 ```
+
+Then open <http://localhost:8080>. The console serves the app and the API from
+that one port.
+
+Three things to know if a step does not go to plan:
+
+- **ClickHouse takes a few seconds to accept connections** on the first run,
+  while it loads the seed data. The explorer shows `northwind` with 8 tables
+  once it is ready.
+- **`docker compose up` publishes ports 8123, 9000, 9363 and 1443.** Only 8123
+  is used by the app; if one of the others is taken on your machine, the
+  container will not start. Removing the unused ports from
+  `docker-compose.yml` is safe.
+- **The API refuses to start without `ANTHROPIC_API_KEY`**, naming the
+  variable, rather than failing on the first chat message. Putting the key in
+  `apps/api/.env` saves repeating it; see
+  [Anthropic API key](#anthropic-api-key).
+
+For the development workflow — two processes, hot reload — see
+[Start the application](#start-the-application).
 
 ### Seed data
 
@@ -234,25 +260,33 @@ came back.
 
 ## Start the application
 
+Two ways to run it, depending on what you are doing.
+
+**One process, production-style** — what [Quick start](#quick-start) uses:
+
+```bash
+pnpm start
 ```
-ANTHROPIC_API_KEY=sk-ant-... pnpm start
+
+Builds both apps, then serves everything from the API on
+<http://localhost:8080>: `/` is the React console, `/api/*` is the API, and any
+other path falls back to the app so deep links work. One origin, so no CORS.
+
+**Two processes, with hot reload** — for development:
+
+```bash
+pnpm dev
 ```
 
-The key can come from `apps/api/.env` instead, in which case `pnpm start` is
-enough; see [Anthropic API key](#anthropic-api-key). Either way this builds the
-console and serves everything from the API on
-<http://localhost:8080>: `/` is the React app, `/api/*` is the API, and any
-other path falls back to the app so deep links work. One process, one origin,
-no CORS.
-
-For development, `pnpm dev` runs the two separately — API on :8080, web on
-:5173 — with Vite forwarding `/api/*` to the API. The browser calls `/api/*`
-either way, so the two environments address the API identically.
-
-Individually:
+The API runs on :8080 and Vite on :5173; open <http://localhost:5173>. Vite
+forwards `/api/*` to the API, so the browser addresses it by the same path it
+uses in production. Either app can be run on its own:
 
 - `pnpm --filter @clickhouse-ai/api dev`
 - `pnpm --filter @clickhouse-ai/web dev`
+
+Both forms read `ANTHROPIC_API_KEY` the same way: inline, or from
+`apps/api/.env`.
 
 ## Test the application
 
